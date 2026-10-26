@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>画境 · 登录</title>
+  <link rel="stylesheet" href="/src/index/studio.css">
+  <link rel="stylesheet" href="/src/admin/admin.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E境%3C/text%3E%3C/svg%3E">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <p class="eyebrow">MAGPIE × GPT IMAGE</p>
+    <h1 class="login-title">画境</h1>
+    <p class="login-sub">请登录后使用生图工作台</p>
+
+    <form id="login-form" class="login-form">
+      <label class="login-field">
+        <span>用户名</span>
+        <input class="login-input" id="username" name="username" autocomplete="username" required>
+      </label>
+      <label class="login-field">
+        <span>密码</span>
+        <input class="login-input" id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="login-error" id="login-error" role="alert" hidden></p>
+      <button class="login-submit" id="login-submit" type="submit">登入</button>
+    </form>
+
+    <div class="login-setup" id="setup-panel" hidden>
+      <p class="login-sub">首次部署：创建第一个管理员账号</p>
+      <form id="setup-form" class="login-form">
+        <label class="login-field">
+          <span>管理密钥</span>
+          <input class="login-input" id="setup-key" type="password" autocomplete="off" required>
+        </label>
+        <label class="login-field">
+          <span>管理员用户名</span>
+          <input class="login-input" id="setup-username" autocomplete="off" required>
+        </label>
+        <label class="login-field">
+          <span>显示名</span>
+          <input class="login-input" id="setup-display-name" autocomplete="off">
+        </label>
+        <label class="login-field">
+          <span>密码</span>
+          <input class="login-input" id="setup-password" type="password" autocomplete="new-password" required>
+        </label>
+        <p class="login-error" id="setup-error" role="alert" hidden></p>
+        <button class="login-submit" id="setup-submit" type="submit">创建管理员</button>
+      </form>
+    </div>
+    <p class="login-foot">账号由管理员统一创建，本页不提供注册。</p>
+  </main>
+
+  <script type="module" src="/src/login/login.js"></script>
+</body>
+</html>

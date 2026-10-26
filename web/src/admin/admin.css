@@ -1,0 +1,558 @@
+/* 登录页与管理页样式 */
+
+/* studio.css 里的 main 是双栏网格、form 是竖向 flex，
+   登录页需要把它们重置回单栏 */
+.admin-body main.admin-main {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 26px;
+  padding-top: 26px;
+}
+
+.login-body main.login-card {
+  display: block;
+  grid-template-columns: none;
+  padding-top: 0;
+}
+
+.login-body .login-form {
+  display: grid;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
+}
+
+.login-body .login-field {
+  display: grid;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 7px;
+}
+
+.login-body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(120% 90% at 20% 0%, #f6efe4 0%, #efe6d8 45%, #e6dccb 100%);
+  color: #2b2622;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+.login-card {
+  width: min(420px, 100%);
+  background: #fffdf8;
+  border: 1px solid rgba(43, 38, 34, 0.1);
+  border-radius: 18px;
+  padding: 40px 36px 30px;
+  box-shadow: 0 24px 60px rgba(60, 48, 36, 0.16);
+}
+
+.login-title {
+  margin: 4px 0 6px;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+
+.login-sub {
+  margin: 0 0 26px;
+  color: #7a6f63;
+  font-size: 14px;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+}
+
+.login-field {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  color: #554c43;
+}
+
+.login-input,
+.modal-input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid rgba(43, 38, 34, 0.18);
+  border-radius: 10px;
+  background: #fffefb;
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-input:focus,
+.modal-input:focus {
+  outline: none;
+  border-color: #425a46;
+  box-shadow: 0 0 0 3px rgba(66, 90, 70, 0.14);
+}
+
+.login-error,
+.modal-error {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: rgba(179, 78, 45, 0.1);
+  color: #a4462a;
+  font-size: 13px;
+}
+
+.login-submit {
+  padding: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #b34e2d;
+  color: #fff8f2;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.login-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(179, 78, 45, 0.3);
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-foot {
+  margin: 22px 0 0;
+  color: #9a9086;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---------- 管理页 ---------- */
+
+.admin-body {
+  margin: 0;
+  background: #f2ece1;
+  color: #2b2622;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+.admin-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 34px 24px 60px;
+}
+
+.admin-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(43, 38, 34, 0.12);
+}
+
+.admin-header h1 {
+  margin: 4px 0 0;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+
+.admin-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-user {
+  color: #6f6559;
+  font-size: 13px;
+}
+
+/* 用户头像：悬停时下方浮现账户菜单 */
+.admin-body .user-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: pointer;
+  z-index: 30;
+}
+
+.admin-body .avatar-letter {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #f6f2e9;
+  border-radius: 50%;
+  background: #425a46;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 17px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.admin-body .user-avatar:hover .avatar-letter,
+.admin-body .user-avatar:focus-visible .avatar-letter {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(66, 90, 70, 0.26);
+}
+
+.admin-body .avatar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 150px;
+  padding: 8px;
+  border: 1px solid rgba(43, 38, 34, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.97);
+  box-shadow: 0 16px 36px rgba(44, 38, 27, 0.18);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+}
+
+.admin-body .user-avatar:hover .avatar-menu,
+.admin-body .user-avatar:focus-within .avatar-menu,
+.admin-body .user-avatar.is-open .avatar-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.admin-body .avatar-name {
+  display: block;
+  padding: 5px 9px 8px;
+  color: #6f6559;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid rgba(43, 38, 34, 0.1);
+  margin-bottom: 6px;
+}
+
+.admin-body .logout-button {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  color: #554c43;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.admin-body .logout-button:hover {
+  background: rgba(29, 36, 32, 0.06);
+}
+
+.admin-link {
+  color: #425a46;
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(66, 90, 70, 0.35);
+  padding-bottom: 1px;
+}
+
+.admin-main {
+  display: grid;
+  gap: 26px;
+  margin-top: 26px;
+}
+
+.admin-section {
+  background: #fffdf8;
+  border: 1px solid rgba(43, 38, 34, 0.1);
+  border-radius: 16px;
+  padding: 22px 24px 24px;
+  box-shadow: 0 10px 30px rgba(60, 48, 36, 0.07);
+}
+
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.section-note {
+  margin: 8px 0 18px;
+  color: #8a8073;
+  font-size: 12.5px;
+}
+
+.sub-head {
+  margin: 26px 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #554c43;
+}
+
+.admin-button {
+  padding: 8px 15px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-button.primary {
+  background: #425a46;
+  color: #f6f2e9;
+}
+
+.admin-button.primary:hover:not(:disabled) {
+  background: #364a39;
+}
+
+.admin-button.ghost {
+  background: transparent;
+  border-color: rgba(43, 38, 34, 0.2);
+  color: #554c43;
+}
+
+.admin-button.ghost:hover:not(:disabled) {
+  border-color: rgba(43, 38, 34, 0.4);
+}
+
+.admin-button.danger {
+  background: transparent;
+  border-color: rgba(179, 78, 45, 0.4);
+  color: #a4462a;
+}
+
+.admin-button.danger:hover:not(:disabled) {
+  background: rgba(179, 78, 45, 0.1);
+}
+
+.admin-button.mini {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.admin-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-table-shell {
+  overflow-x: auto;
+  border: 1px solid rgba(43, 38, 34, 0.1);
+  border-radius: 12px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 11px 14px;
+  text-align: left;
+  border-bottom: 1px solid rgba(43, 38, 34, 0.08);
+  white-space: nowrap;
+}
+
+.admin-table th {
+  background: #f7f2e9;
+  color: #6b6154;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-table .empty-row td {
+  padding: 26px;
+  text-align: center;
+  color: #9a9086;
+}
+
+.role-tag,
+.status-tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+}
+
+.role-tag.admin {
+  background: rgba(66, 90, 70, 0.14);
+  color: #3a5040;
+}
+
+.role-tag.user {
+  background: rgba(43, 38, 34, 0.08);
+  color: #6b6154;
+}
+
+.status-tag.on {
+  background: rgba(66, 90, 70, 0.14);
+  color: #3a5040;
+}
+
+.status-tag.off {
+  background: rgba(179, 78, 45, 0.14);
+  color: #a4462a;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.stat-card {
+  display: grid;
+  gap: 4px;
+  padding: 18px 20px;
+  border: 1px solid rgba(43, 38, 34, 0.1);
+  border-radius: 12px;
+  background: #faf6ee;
+}
+
+.stat-label {
+  color: #8a8073;
+  font-size: 12px;
+}
+
+.stat-value {
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.stat-unit {
+  color: #9a9086;
+  font-size: 12px;
+}
+
+.bar-cell {
+  min-width: 140px;
+  white-space: normal;
+}
+
+.bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(43, 38, 34, 0.1);
+  overflow: hidden;
+  margin-top: 5px;
+}
+
+.bar-fill {
+  height: 100%;
+  background: #425a46;
+  border-radius: 999px;
+}
+
+.admin-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(40, 34, 28, 0.42);
+  backdrop-filter: blur(3px);
+  z-index: 50;
+}
+
+.admin-modal[hidden] {
+  display: none;
+}
+
+.modal-card {
+  width: min(430px, 100%);
+  background: #fffdf8;
+  border-radius: 16px;
+  padding: 26px 26px 22px;
+  box-shadow: 0 26px 60px rgba(40, 32, 24, 0.3);
+}
+
+.modal-card h3 {
+  margin: 0 0 18px;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.modal-form {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+}
+
+.modal-field {
+  display: grid;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  color: #554c43;
+}
+
+.modal-field small {
+  color: #9a9086;
+  font-size: 11.5px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .admin-shell {
+    padding: 22px 14px 44px;
+  }
+
+  .admin-section {
+    padding: 18px 14px 20px;
+  }
+
+  .stat-value {
+    font-size: 25px;
+  }
+}

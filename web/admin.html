@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>画境 · 后台管理</title>
+  <link rel="stylesheet" href="/src/index/studio.css">
+  <link rel="stylesheet" href="/src/admin/admin.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E管%3C/text%3E%3C/svg%3E">
+</head>
+<body class="admin-body">
+  <div class="admin-shell">
+    <header class="admin-header">
+      <div>
+        <p class="eyebrow">MAGPIE · ADMIN</p>
+        <h1>画境后台</h1>
+      </div>
+      <div class="admin-header-tools">
+        <a class="admin-link" href="/">工作台 →</a>
+        <div class="user-avatar" id="user-avatar" tabindex="0" role="button" aria-haspopup="menu" aria-label="账户菜单">
+          <span class="avatar-letter" id="avatar-letter" aria-hidden="true">管</span>
+          <div class="avatar-menu" id="avatar-menu" role="menu">
+            <span class="avatar-name" id="admin-user"></span>
+            <button class="logout-button" id="logout-button" type="button" role="menuitem">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="admin-main">
+      <section class="admin-section" id="section-accounts">
+        <div class="section-head">
+          <h2>账号管理</h2>
+          <button class="admin-button primary" id="new-user-button" type="button">＋ 新建账号</button>
+        </div>
+        <p class="section-note">客户端不提供注册入口，所有账号在此创建。</p>
+        <div class="admin-table-shell">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>显示名</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>生图数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="admin-section" id="section-stats">
+        <div class="section-head">
+          <h2>生图统计</h2>
+          <button class="admin-button ghost" id="refresh-button" type="button">刷新</button>
+        </div>
+
+        <div class="stat-cards">
+          <div class="stat-card">
+            <span class="stat-label">累计生成</span>
+            <strong class="stat-value" id="stat-total">0</strong>
+            <span class="stat-unit">张</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">参与账号</span>
+            <strong class="stat-value" id="stat-accounts">0</strong>
+            <span class="stat-unit">个</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">占用空间</span>
+            <strong class="stat-value" id="stat-bytes">0</strong>
+            <span class="stat-unit">MB</span>
+          </div>
+        </div>
+
+        <h3 class="sub-head">按账号细分</h3>
+        <div class="admin-table-shell">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>账号</th>
+                <th>生成张数</th>
+                <th>占用空间</th>
+                <th>最近生成</th>
+                <th>占比</th>
+              </tr>
+            </thead>
+            <tbody id="stats-body"></tbody>
+          </table>
+        </div>
+
+        <h3 class="sub-head">最近生成记录</h3>
+        <div class="admin-table-shell">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>账号</th>
+                <th>类型</th>
+                <th>名称</th>
+                <th>画幅</th>
+                <th>尺寸</th>
+                <th>大小</th>
+              </tr>
+            </thead>
+            <tbody id="recent-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="admin-modal" id="user-modal" hidden>
+    <div class="modal-card">
+      <h3 id="modal-title">新建账号</h3>
+      <form id="user-form" class="modal-form">
+        <label class="modal-field">
+          <span>用户名</span>
+          <input class="modal-input" id="modal-username" autocomplete="off" required>
+        </label>
+        <label class="modal-field">
+          <span>显示名</span>
+          <input class="modal-input" id="modal-display-name" autocomplete="off">
+        </label>
+        <label class="modal-field">
+          <span>密码</span>
+          <input class="modal-input" id="modal-password" type="password" autocomplete="new-password">
+          <small id="modal-password-hint">至少 6 位</small>
+        </label>
+        <label class="modal-field">
+          <span>角色</span>
+          <select class="modal-input" id="modal-role">
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+          </select>
+        </label>
+        <p class="modal-error" id="modal-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="admin-button primary" id="modal-save" type="submit">保存</button>
+          <button class="admin-button ghost" id="modal-cancel" type="button">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="/src/admin/admin.js"></script>
+</body>
+</html>

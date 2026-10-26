@@ -1,0 +1,15 @@
+{
+  "name": "huajing-image-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "画境生图前端：单张工作台与资产批量工作台",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.0.7"
+  }
+}

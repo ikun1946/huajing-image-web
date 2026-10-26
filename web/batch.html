@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>画境 · 资产批量生图</title>
+  <link rel="stylesheet" href="/src/batch/batch.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E境%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="app">
+    <header class="masthead">
+      <div class="brand">
+        <div>
+          <p class="eyebrow">Magpie Asset Workbench</p>
+          <h1>画境 · 资产批量</h1>
+        </div>
+        <div class="brand-mark" aria-hidden="true">境</div>
+      </div>
+
+      <div class="header-actions">
+        <button class="button secondary" id="header-projects" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          </svg>
+          <span>项目</span>
+        </button>
+        <button class="button secondary" id="header-import" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 16V4"></path>
+            <path d="m7.5 8.5 4.5-4.5 4.5 4.5"></path>
+            <path d="M5 14v5h14v-5"></path>
+          </svg>
+          <span>导入资产 JSON</span>
+        </button>
+        <a class="button ghost" href="/studio">单张工作台</a>
+        <div class="user-avatar" id="user-avatar" tabindex="0" role="button" aria-haspopup="menu" aria-label="账户菜单">
+          <span class="avatar-letter" id="avatar-letter" aria-hidden="true">境</span>
+          <div class="avatar-menu" id="avatar-menu" role="menu">
+            <span class="avatar-name" id="header-user"></span>
+            <button class="logout-button" id="logout-button" type="button" role="menuitem">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="资产页面">
+      <button class="tab active" data-tab="import" type="button">资产导入</button>
+      <button class="tab" data-tab="role" type="button">
+        角色资产 <span class="tab-count" data-count="role">0</span>
+      </button>
+      <button class="tab" data-tab="scene" type="button">
+        场景资产 <span class="tab-count" data-count="scene">0</span>
+      </button>
+      <button class="tab" data-tab="prop" type="button">
+        道具资产 <span class="tab-count" data-count="prop">0</span>
+      </button>
+      <button class="tab" data-tab="free" type="button">自由创作</button>
+      <button class="tab" data-tab="style" type="button">风格设定</button>
+    </nav>
+
+    <main>
+      <input id="file-input" type="file" accept=".json,application/json" hidden>
+
+      <div class="dataset-bar" id="dataset-bar" hidden>
+        <div class="dataset-info">
+          <div class="dataset-icon" aria-hidden="true">{ }</div>
+          <div style="min-width:0">
+            <p class="dataset-name" id="dataset-name">未导入文件</p>
+            <p class="dataset-meta" id="dataset-meta">导入资产 JSON 后开始批量生成</p>
+          </div>
+        </div>
+        <div class="dataset-stats">
+          <div class="dataset-stat"><strong data-count="role">0</strong>角色</div>
+          <div class="dataset-stat"><strong data-count="scene">0</strong>场景</div>
+          <div class="dataset-stat"><strong data-count="prop">0</strong>道具</div>
+          <div class="dataset-stat"><strong data-count="all">0</strong>总计</div>
+        </div>
+      </div>
+
+      <section class="page" data-panel="import">
+        <div class="workspace-head">
+          <div>
+            <h2>导入资产表</h2>
+            <p>读取顶层 <code>role</code>、<code>scene</code>、<code>prop</code>，自动拆解每个资产的字段与生图提示词。</p>
+          </div>
+          <div class="legend">
+            <span class="badge">字段原样保留</span>
+            <span class="badge">提示词可编辑</span>
+            <span class="badge">逐项独立参数</span>
+          </div>
+        </div>
+
+        <div class="import-layout">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="选择或拖入资产 JSON 文件">
+            <div class="dropzone-inner">
+              <div class="drop-icon" aria-hidden="true">JSON</div>
+              <h2>把资产文件放到这里</h2>
+              <p>支持这份导演分镜资产 JSON 的 <strong>role / scene / prop</strong> 结构。<br>文件只在本页解析，并保存在当前浏览器中。</p>
+              <button class="button primary" type="button">选择 JSON 文件</button>
+            </div>
+          </div>
+
+          <aside class="import-notes">
+            <div>
+              <h3>导入后会得到什么</h3>
+              <div class="note-row">
+                <span class="note-index">01</span>
+                <div><strong>按资产类型分页</strong>角色、场景、道具各自独立成表，数量自动统计。</div>
+              </div>
+              <div class="note-row">
+                <span class="note-index">02</span>
+                <div><strong>每个字段成为参数</strong>【姓名】、颜值定位、空间结构、材质等字段完整拆开显示。</div>
+              </div>
+              <div class="note-row">
+                <span class="note-index">03</span>
+                <div><strong>批量生成队列</strong>勾选后顺序生成，每项独立画面比例，可随时停止后续任务。</div>
+              </div>
+            </div>
+
+            <div class="type-cards">
+              <div class="type-card"><strong data-count="role">0</strong><span>角色资产</span></div>
+              <div class="type-card"><strong data-count="scene">0</strong><span>场景资产</span></div>
+              <div class="type-card"><strong data-count="prop">0</strong><span>道具资产</span></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" data-panel="role" hidden></section>
+      <section class="page" data-panel="scene" hidden></section>
+      <section class="page" data-panel="prop" hidden></section>
+      <section class="page" data-panel="style" hidden></section>
+
+      <section class="page" data-panel="free" hidden>
+        <div class="workspace-head">
+          <div>
+            <h2>自由创作</h2>
+            <p>不关联资产表，直接输入提示词生成单张图片。</p>
+          </div>
+        </div>
+
+        <div class="free-layout">
+          <form class="free-form" id="free-form">
+            <div class="label-row">
+              <span>描述你想看见的画面</span>
+              <span class="counter"><span id="free-count">0</span> / 4000</span>
+            </div>
+            <textarea
+              class="textarea"
+              id="free-prompt"
+              maxlength="4000"
+              placeholder="输入画面、人物、场景、光影与材质描述……"
+              required
+            ></textarea>
+
+            <div class="free-params">
+              <div>
+                <label class="field-label" for="free-ratio">画面比例</label>
+                <select class="select" id="free-ratio">
+                  <option value="1:1">1 : 1 方形</option>
+                  <option value="4:3">4 : 3 横向</option>
+                  <option value="3:4">3 : 4 纵向</option>
+                  <option value="16:9">16 : 9 宽银幕</option>
+                  <option value="9:16">9 : 16 竖屏</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="free-submit-row">
+              <button class="button primary" id="free-submit" type="submit">生成图像</button>
+              <p class="status-text" id="free-status">等待你的想象</p>
+            </div>
+
+            <div class="free-progress" id="free-progress">
+              <div class="free-progress-meta">
+                <span id="free-progress-label">正在理解画面</span>
+                <span id="free-elapsed">00:00</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-bar" id="free-progress-bar"></div>
+              </div>
+            </div>
+          </form>
+
+          <article class="free-preview" id="free-preview">
+            <div class="preview-placeholder">
+              <div class="preview-placeholder-mark" aria-hidden="true">□</div>
+              生成的画面<br>将在这里浮现
+            </div>
+            <div class="image-tools">
+              <button class="glass-button" id="free-download" type="button" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12"></path>
+                  <path d="m7.5 10.5 4.5 4.5 4.5-4.5"></path>
+                  <path d="M5 20h14"></path>
+                </svg>
+                下载
+              </button>
+              <button class="glass-button" id="free-maximize" type="button" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8.5 3.5h-5v5"></path>
+                  <path d="M15.5 3.5h5v5"></path>
+                  <path d="M20.5 15.5v5h-5"></path>
+                  <path d="M3.5 15.5v5h5"></path>
+                </svg>
+                最大化
+              </button>
+            </div>
+            <img id="free-image" alt="自由创作生成的图片">
+          </article>
+        </div>
+      </section>
+
+      <div class="queue-panel" id="queue-panel" hidden>
+        <div class="queue-top">
+          <div style="min-width:0">
+            <p class="queue-title" id="queue-title">批量任务</p>
+            <p class="queue-detail" id="queue-detail">准备中</p>
+          </div>
+          <span class="queue-count" id="queue-count">0 / 0</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" id="queue-progress"></div>
+        </div>
+        <div class="queue-actions">
+          <button class="button danger" id="stop-queue" type="button">停止后续任务</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal" id="asset-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-sheet">
+      <header class="modal-head">
+        <div>
+          <p class="modal-kicker" id="modal-kicker">资产字段</p>
+          <h3 id="modal-title">资产详情</h3>
+        </div>
+        <button class="button secondary modal-close" id="modal-close" type="button">关闭</button>
+      </header>
+
+      <div class="modal-body">
+        <aside class="field-list">
+          <h4>JSON 字段</h4>
+          <dl id="modal-fields"></dl>
+        </aside>
+
+        <section class="prompt-editor">
+          <h4>生图提示词</h4>
+          <textarea class="textarea" id="modal-prompt" maxlength="4000"></textarea>
+          <div class="prompt-meta">
+            <span>提示词会自动保存到当前浏览器</span>
+            <span><span id="modal-prompt-count">0</span> / 4000</span>
+          </div>
+
+          <div class="modal-params">
+            <div>
+              <label class="field-label" for="modal-ratio">画面比例</label>
+              <select class="select" id="modal-ratio">
+                <option value="1:1">1 : 1 方形</option>
+                <option value="4:3">4 : 3 横向</option>
+                <option value="3:4">3 : 4 纵向</option>
+                <option value="16:9">16 : 9 宽银幕</option>
+                <option value="9:16">9 : 16 竖屏</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="modal-style">风格</label>
+              <select class="select" id="modal-style"></select>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="button primary" id="modal-generate" type="button">生成这张资产图</button>
+            <button class="button secondary" id="modal-reset-prompt" type="button">恢复自动提示词</button>
+          </div>
+
+          <div class="modal-result">
+            <button class="modal-result-thumb" id="modal-result-thumb" type="button">暂无图片</button>
+            <div class="modal-result-text" id="modal-result-text">
+              <strong>尚未生成</strong>
+              选择参数后点击生成，结果会与这条资产关联。
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="图片大图预览">
+    <div class="lightbox-stage" id="lightbox-stage">
+      <img id="lightbox-image" alt="图片大图预览">
+      <button class="lightbox-close" id="lightbox-close" type="button" aria-label="关闭大图">×</button>
+    </div>
+  </div>
+
+  <div class="drawer-backdrop" id="projects-backdrop" hidden></div>
+  <aside class="drawer" id="projects-drawer" role="dialog" aria-modal="true" aria-label="项目管理" hidden>
+    <div class="drawer-head">
+      <div>
+        <h2>项目</h2>
+        <p>每个项目是一份独立的资产数据，保存在本地</p>
+      </div>
+      <button class="drawer-close" id="projects-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="drawer-body" id="projects-list"></div>
+    <div class="drawer-foot">
+      <button class="button primary" id="projects-new" type="button">＋ 新建空项目</button>
+      <button class="button secondary" id="projects-import" type="button">导入 JSON 新建项目</button>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/src/batch/batch.js"></script>
+</body>
+</html>

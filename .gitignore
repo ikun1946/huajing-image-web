@@ -1,0 +1,20 @@
+node_modules/
+dist/
+generated/
+*.log
+.env
+.playwright-cli/
+
+# 本地数据：账号库含密码哈希，统计与风格库是个人数据
+users.json
+projects.json
+usage.json
+styles.json
+*.json.bak
+*.json.tmp
+
+# 重构前的旧版单文件实现，无人引用
+legacy-single-file/
+
+# 本地修 Windows 文件关联时的注册表备份
+*.reg
