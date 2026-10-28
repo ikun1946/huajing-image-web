@@ -3,6 +3,8 @@ import {
   activateProject,
   createProject,
   deleteProject,
+  fetchGenerationJob,
+  fetchHistory,
   fetchProject,
   fetchProjects,
   fetchServerConfig,
@@ -22,36 +24,31 @@ import {
   sleep,
   timestamp,
 } from '../lib/dom.js'
+import { setupHistoryPanel } from '../lib/history-panel.js'
 import { requireLogin } from '../lib/guard.js'
 
-    // 未登录先跳转登录页
-    requireLogin()
-      .then(user => {
-        const label = document.querySelector('#header-user')
-        if (label) label.textContent = user.displayName || user.username
-
-        // 头像里显示用户名首字
-        const letter = document.querySelector('#avatar-letter')
-        if (letter) {
-          const source = user.displayName || user.username || '境'
-          letter.textContent = Array.from(source)[0] || '境'
-        }
-      })
-      .catch(() => {})
+    setupHistoryPanel()
 
     document.querySelector('#logout-button')?.addEventListener('click', async () => {
       await logout().catch(() => {})
+      // 退出只清掉这个账号「未完成的生图任务」；工作区快照按账号各自保留
+      try {
+        if (currentUserId) localStorage.removeItem(pendingJobKey())
+      } catch {}
       window.location.replace('/login.html')
     })
 
-    // 点击头像也能开合菜单，触屏设备友好
+    // 点击头像也能开合菜单，触屏设备友好；点在记录面板内不收起菜单
     document.querySelector('#user-avatar')?.addEventListener('click', event => {
       event.stopPropagation()
       document.querySelector('#user-avatar')?.classList.toggle('is-open')
     })
 
-    document.addEventListener('click', () => {
-      document.querySelector('#user-avatar')?.classList.remove('is-open')
+    document.addEventListener('click', event => {
+      const avatar = document.querySelector('#user-avatar')
+      if (!avatar) return
+      if (event.target.closest?.('#history-panel')) return
+      avatar.classList.remove('is-open')
     })
 
     const TYPE_META = {
@@ -78,7 +75,17 @@ import { requireLogin } from '../lib/guard.js'
       },
     }
 
-    const STORAGE_KEY = 'moying.assetStudio.v1'
+    /* 本地快照按账号隔离：同一个浏览器换账号后，不能再看到上一个人的
+       草稿、上次生成的图片与导入的资产。key 里带 userId，退出登录不清理
+       （各账号各留一份，回来还在）；v1 是旧的全局 key，只在能证明归属时迁移。 */
+    const LEGACY_STORAGE_KEY = 'moying.assetStudio.v1'
+    const LEGACY_PENDING_JOB_KEY = 'moying.pendingJob.v1'
+    let currentUserId = ''
+    const storageKey = () => `moying.assetStudio.v2.${currentUserId}`
+    const pendingJobKey = () => `moying.pendingJob.v2.${currentUserId}`
+    /* 断线恢复相关的定时器必须在初始化调用之前声明，
+       否则函数被提前调用时会撞上暂时性死区（TDZ）而静默失败 */
+    let resumeTimer = 0
     const STATUS_TEXT = {
       idle: '未生成',
       queued: '排队中',
@@ -129,6 +136,9 @@ import { requireLogin } from '../lib/guard.js'
       freeBusy: false,
       freeImageUrl: '',
       freeImageExtension: 'png',
+      // 自由创作的画面比例与提示词草稿，刷新后保持
+      freeRatio: '1:1',
+      freePrompt: '',
       styleType: 'role',
       styleEditingId: '',
       styleDirty: false,
@@ -216,6 +226,8 @@ import { requireLogin } from '../lib/guard.js'
       freeImage: document.querySelector('#free-image'),
       freeDownload: document.querySelector('#free-download'),
       freeMaximize: document.querySelector('#free-maximize'),
+      freePromptMaximize: document.querySelector('#free-prompt-maximize'),
+      freePromptCopy: document.querySelector('#free-prompt-copy'),
     }
 
     let toastTimer = 0
@@ -225,22 +237,70 @@ import { requireLogin } from '../lib/guard.js'
     let freeStartedAt = 0
     let freeProgressValue = 0
 
-    // 风格库存放在后端，任何浏览器打开都能共用同一份。
-    // 先取后端风格库，再恢复本地的资产与生成记录。
-    restoreState()
+    /* 启动顺序很重要：必须**先确认当前是谁**，再读本地快照并渲染。
+       以前是同步 restoreState() + renderAll()，而身份是异步拿的，
+       结果换账号后上一账号的草稿/图片会先画到页面上且之后不再覆盖。 */
     wireEvents()
-    renderAll()
+    boot()
 
-    // 先加载项目，再决定风格库用项目的还是全局模板的
-    loadProjects().then(() => loadSharedStyles())
+    async function boot() {
+      let user
+      try {
+        user = await requireLogin()
+      } catch {
+        // guard 已把 401/403 跳转到登录页；其余错误要说出来，别把空页面当正常
+        showToast('无法确认登录状态，请刷新页面重试', true)
+        return
+      }
 
-    // 后端配置决定可选画面比例，拉取失败时保留本地兜底值
-    fetchServerConfig()
-      .then(config => {
-        serverConfig = config
-        renderActivePanel()
-      })
-      .catch(() => {})
+      // /api/auth/me 返回的是 { userId, username, displayName, role }，
+      // 登录接口返回的才是 { id, ... }，两处都兼容一下
+      currentUserId = user.id || user.userId || ''
+      if (!currentUserId) {
+        showToast('登录状态异常，请刷新页面重试', true)
+        return
+      }
+      applyUserChrome(user)
+
+      await adoptLegacySnapshotIfOwned()
+      await adoptLegacyPendingJobIfOwned()
+      restoreState()
+      renderAll()
+      // 刷新前若有正在生成的图片，自动接回进度与结果（只接本账号自己的）
+      resumePendingJobIfAny()
+
+      // 先加载项目，再决定风格库用项目的还是全局模板的
+      loadProjects().then(() => loadSharedStyles())
+
+      // 后端配置决定可选画面比例，拉取失败时保留本地兜底值
+      fetchServerConfig()
+        .then(config => {
+          serverConfig = config
+          renderActivePanel()
+          // 自由创作的画面比例也按后端配置渲染，并恢复用户上次的选择
+          if (serverConfig?.ratios?.length) {
+            dom.freeRatio.innerHTML = serverConfig.ratios
+              .map(ratio => `<option value="${escapeAttr(ratio.id)}">${escapeHtml(ratio.label)}</option>`)
+              .join('')
+          }
+          if (serverConfig.ratios.some(ratio => ratio.id === state.freeRatio)) {
+            dom.freeRatio.value = state.freeRatio
+          }
+        })
+        .catch(() => {})
+    }
+
+    /** 头像与菜单里的账号标识（名字取自 /api/auth/me 的实时结果） */
+    function applyUserChrome(user) {
+      const label = document.querySelector('#header-user')
+      if (label) label.textContent = user.displayName || user.username
+
+      const letter = document.querySelector('#avatar-letter')
+      if (letter) {
+        const source = user.displayName || user.username || '境'
+        letter.textContent = Array.from(source)[0] || '境'
+      }
+    }
 
     async function loadSharedStyles() {
       try {
@@ -249,7 +309,9 @@ import { requireLogin } from '../lib/guard.js'
 
         const hasServerStyles = Object.values(library.styles || {}).some(list => Array.isArray(list) && list.length)
         if (!hasServerStyles) {
-          // 后端还没有风格，把本地的写上去作为初始值
+          // 服务端还没有这个账号的风格：把本地风格作为初始值写上去。
+          // 本地快照已按账号隔离（storageKey 带 userId），所以这里只会播种
+          // 当前账号自己的风格，不会再出现「B 继承 A 的风格」。
           await persistStylesToServer()
           return
         }
@@ -380,6 +442,42 @@ import { requireLogin } from '../lib/guard.js'
       dom.freeMaximize.addEventListener('click', () => {
         if (state.freeImageUrl) openLightbox(state.freeImageUrl, '自由创作生成图')
       })
+
+      // 提示词悬浮工具：复制 + 最大化编辑器（与单张工作台同款）
+      dom.freePromptCopy.addEventListener('click', async () => {
+        const value = dom.freePrompt.value
+        if (!value) {
+          showToast('提示词还是空的')
+          return
+        }
+        try {
+          await navigator.clipboard.writeText(value)
+        } catch {
+          dom.freePrompt.focus()
+          dom.freePrompt.select()
+          document.execCommand('copy')
+          dom.freePrompt.setSelectionRange(dom.freePrompt.value.length, dom.freePrompt.value.length)
+        }
+        showToast('提示词已复制到剪贴板')
+      })
+
+      dom.freePromptMaximize.addEventListener('click', () => openFreePromptEditor())
+
+      /* 悬浮工具只在输入框右上角热区出现：热区 = 右侧 150px、顶部 56px */
+      const promptShell = dom.freePrompt.closest('.prompt-shell')
+      if (promptShell) {
+        const HOT_W = 150
+        const HOT_H = 56
+        promptShell.addEventListener('mousemove', event => {
+          const rect = promptShell.getBoundingClientRect()
+          const nearRight = event.clientX >= rect.right - HOT_W
+          const nearTop = event.clientY <= rect.top + HOT_H
+          promptShell.classList.toggle('tools-near', nearRight && nearTop)
+        })
+        promptShell.addEventListener('mouseleave', () => {
+          promptShell.classList.remove('tools-near')
+        })
+      }
     }
 
     function handleClick(event) {
@@ -496,6 +594,12 @@ import { requireLogin } from '../lib/guard.js'
       const type = state.styleType
       const list = styleList(type)
 
+      // 「保存风格」按钮：立即保存当前编辑中的风格（校验失败会提示原因）
+      if (action === 'save') {
+        savePendingStyleIfValid(false)
+        return
+      }
+
       if (action === 'create') {
         const style = {
           id: `style-${type}-${randomId()}`,
@@ -588,6 +692,13 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     function handleChange(event) {
+      // 自由创作画面比例：记住选择，刷新后保持
+      if (event.target === dom.freeRatio) {
+        state.freeRatio = dom.freeRatio.value
+        persistSoon()
+        return
+      }
+
       // 工具栏批量比例/风格：记住选择，刷新后保持
       const bulkRatio = event.target.closest('[id^="bulk-ratio-"]')
       if (bulkRatio) {
@@ -678,7 +789,9 @@ import { requireLogin } from '../lib/guard.js'
       }
 
       if (event.target === dom.freePrompt) {
-        dom.freeCount.textContent = String(dom.freePrompt.value.length)
+        state.freePrompt = dom.freePrompt.value
+        dom.freeCount.textContent = String(state.freePrompt.length)
+        persistSoon()
       }
     }
 
@@ -695,7 +808,7 @@ import { requireLogin } from '../lib/guard.js'
 
     function restoreState() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY)
+        const raw = localStorage.getItem(storageKey())
         if (!raw) {
           initializeStyles()
           return
@@ -712,13 +825,103 @@ import { requireLogin } from '../lib/guard.js'
         state.defaultStyle = normalizeDefaultStyles(saved.defaultStyle, state.styles)
         state.assets = saved.assets.map(asset => normalizeAsset(asset))
         state.bulkParams = normalizeBulkParams(saved.bulkParams)
-        state.activeTab = state.assets.length ? (saved.activeTab && saved.activeTab !== 'import' ? saved.activeTab : 'role') : 'import'
+        // 恢复自由创作的画面比例选择（配合服务端配置渲染后回填）
+        if (typeof saved.freeRatio === 'string' && saved.freeRatio) {
+          state.freeRatio = saved.freeRatio
+        }
+        // 恢复自由创作的提示词草稿与上次生成结果，刷新不清空
+        if (typeof saved.freePrompt === 'string') {
+          state.freePrompt = saved.freePrompt
+        }
+        if (typeof saved.freeImageUrl === 'string') {
+          state.freeImageUrl = saved.freeImageUrl
+        }
+        if (typeof saved.freeImageExtension === 'string') {
+          state.freeImageExtension = saved.freeImageExtension
+        }
+        // 自由创作/风格设定不依赖资产，刷新后停留在用户离开的页签；
+        // 资产类页签在无资产时回落到导入页
+        if (['free', 'style'].includes(saved.activeTab)) {
+          state.activeTab = saved.activeTab
+        } else {
+          state.activeTab = state.assets.length ? (saved.activeTab && saved.activeTab !== 'import' ? saved.activeTab : 'role') : 'import'
+        }
         if (!dom.panels[state.activeTab]) state.activeTab = 'import'
       } catch (error) {
         console.warn('无法恢复上次导入的数据', error)
-        localStorage.removeItem(STORAGE_KEY)
+        if (currentUserId) localStorage.removeItem(storageKey())
         initializeStyles()
       }
+    }
+
+    /**
+     * 旧版快照（v1）只存了一份、不分账号。升级后不能直接继承——那正是
+     * 「换账号看到上一个账号页面」的原因。这里只在**能证明归属**时迁移，
+     * 两条证据任一条成立即可：
+     *   1) 快照里的 activeProjectId 属于当前账号（查他人项目会 404）
+     *   2) 快照里上次生成的图片出现在当前账号的生成记录里
+     * 都证明不了就原样留着，绝不猜测。
+     */
+    async function adoptLegacySnapshotIfOwned() {
+      try {
+        if (!currentUserId) return
+        if (localStorage.getItem(storageKey())) return
+
+        const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+        if (!raw) return
+
+        let saved
+        try {
+          saved = JSON.parse(raw)
+        } catch {
+          return
+        }
+        if (!saved || !Array.isArray(saved.assets)) return
+
+        if (!(await legacySnapshotBelongsToMe(saved))) return
+
+        localStorage.setItem(storageKey(), raw)
+        localStorage.removeItem(LEGACY_STORAGE_KEY)
+      } catch {
+        // 读不到（404）或网络异常：旧键原样保留，不迁移
+      }
+    }
+
+    /** 只比较路径部分：主机名/协议变化（换 IP 访问）不影响判断 */
+    function toLocalPath(url) {
+      try {
+        return decodeURIComponent(new URL(url, location.origin).pathname)
+      } catch {
+        return ''
+      }
+    }
+
+    async function legacySnapshotBelongsToMe(saved) {
+      const projectId = typeof saved.activeProjectId === 'string' ? saved.activeProjectId : ''
+      if (projectId) {
+        try {
+          await fetchProject(projectId)
+          return true
+        } catch {
+          // 不是本账号的项目，继续看下一条证据
+        }
+      }
+
+      const imageUrl = typeof saved.freeImageUrl === 'string' ? saved.freeImageUrl : ''
+      if (imageUrl) {
+        try {
+          const result = await fetchHistory(120)
+          const entries = Array.isArray(result?.entries) ? result.entries : []
+          const target = toLocalPath(imageUrl)
+          if (target && entries.some(entry => toLocalPath(entry.imageUrl || '') === target)) {
+            return true
+          }
+        } catch {
+          // 记录取不到就不认领
+        }
+      }
+
+      return false
     }
 
     /** 把某个项目的数据载入当前编辑状态。 */
@@ -729,9 +932,12 @@ import { requireLogin } from '../lib/guard.js'
       state.styles = normalizeStyles(project.styles)
       state.defaultStyle = normalizeDefaultStyles(project.defaultStyle, state.styles)
       state.bulkParams = normalizeBulkParams(project.bulkParams)
-      state.activeTab = state.assets.length
-        ? (state.activeTab && state.activeTab !== 'import' ? state.activeTab : 'role')
-        : 'import'
+      // 自由创作/风格设定不依赖资产，载入项目时保留用户所在页签
+      if (!['free', 'style'].includes(state.activeTab)) {
+        state.activeTab = state.assets.length
+          ? (state.activeTab && state.activeTab !== 'import' ? state.activeTab : 'role')
+          : 'import'
+      }
       state.selected.clear()
       state.search = { role: '', scene: '', prop: '' }
       state.page = { role: 1, scene: 1, prop: 1 }
@@ -758,7 +964,10 @@ import { requireLogin } from '../lib/guard.js'
           state.fileName = ''
           state.importedAt = ''
           state.assets = []
-          state.activeTab = 'import'
+          // 无项目时尊重本地记住的页签：自由创作/风格设定不需要资产
+          if (!['free', 'style'].includes(state.activeTab)) {
+            state.activeTab = 'import'
+          }
           state.activeProjectId = ''
         }
         renderAll()
@@ -871,18 +1080,26 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     function persist() {
+      // 身份还没确定时不写盘，避免把临时状态落到别人的 key 上
+      if (!currentUserId) return
       try {
         const data = {
+          // 记一份归属，方便排查「这份快照是谁的」
+          ownerId: currentUserId,
           activeProjectId: state.activeProjectId,
           fileName: state.fileName,
           importedAt: state.importedAt,
           activeTab: state.activeTab,
+          freeRatio: state.freeRatio,
+          freePrompt: state.freePrompt,
+          freeImageUrl: state.freeImageUrl,
+          freeImageExtension: state.freeImageExtension,
           assets: state.assets,
           styles: state.styles,
           defaultStyle: state.defaultStyle,
           bulkParams: state.bulkParams,
         }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+        localStorage.setItem(storageKey(), JSON.stringify(data))
       } catch (error) {
         console.warn('无法保存导入数据', error)
         showToast('浏览器存储空间不足，本次修改可能无法长期保存', true)
@@ -2099,6 +2316,223 @@ import { requireLogin } from '../lib/guard.js'
       toastTimer = window.setTimeout(() => dom.toast.classList.remove('visible'), 3600)
     }
 
+    /** 提示词最大化编辑器：玻璃卡片，完成时写回输入框（与单张工作台同款） */
+    function openFreePromptEditor() {
+      let editor = document.querySelector('#free-prompt-editor')
+      if (!editor) {
+        editor = document.createElement('div')
+        editor.id = 'free-prompt-editor'
+        editor.className = 'prompt-editor'
+        editor.innerHTML = `
+          <div class="prompt-editor-card">
+            <div class="prompt-editor-head">
+              <span>编辑提示词</span>
+              <button class="prompt-editor-close" type="button" aria-label="关闭编辑器">✕</button>
+            </div>
+            <textarea class="prompt-editor-text" id="free-prompt-editor-text"></textarea>
+            <div class="prompt-editor-foot">
+              <span class="prompt-editor-count"><span id="free-prompt-editor-count">0</span> 字</span>
+              <button class="prompt-editor-done" id="free-prompt-editor-done" type="button">完成</button>
+            </div>
+          </div>
+        `
+        document.body.append(editor)
+
+        const editorText = editor.querySelector('#free-prompt-editor-text')
+        const editorCount = editor.querySelector('#free-prompt-editor-count')
+
+        editorText.addEventListener('input', () => {
+          editorCount.textContent = String(editorText.value.length)
+        })
+
+        const close = () => {
+          dom.freePrompt.value = editorText.value
+          state.freePrompt = editorText.value
+          dom.freeCount.textContent = String(state.freePrompt.length)
+          persistSoon()
+          editor.classList.remove('visible')
+          dom.freePrompt.focus()
+        }
+
+        editor.querySelector('.prompt-editor-close').addEventListener('click', close)
+        editor.querySelector('#free-prompt-editor-done').addEventListener('click', close)
+        editor.addEventListener('click', event => {
+          if (event.target === editor) close()
+        })
+        document.addEventListener('keydown', event => {
+          if (event.key === 'Escape' && editor.classList.contains('visible')) close()
+        })
+      }
+
+      const editorText = editor.querySelector('#free-prompt-editor-text')
+      editorText.value = dom.freePrompt.value
+      editor.querySelector('#free-prompt-editor-count').textContent = String(editorText.value.length)
+      editor.classList.add('visible')
+      editorText.focus()
+      editorText.setSelectionRange(editorText.value.length, editorText.value.length)
+    }
+
+    /* ===== 断线恢复：刷新页面后接回仍在后台生成的图片 =====
+       提交前先生成 jobId 存到本地；页面若被刷新，重新载入时凭 jobId
+       轮询服务端任务状态，拿到结果后照常渲染。
+       任务同样按账号隔离：换了账号不能去接上一个人的进度。 */
+    function rememberPendingJob(jobId) {
+      if (!currentUserId) return
+      try {
+        localStorage.setItem(
+          pendingJobKey(),
+          JSON.stringify({ jobId, userId: currentUserId, startedAt: Date.now() }),
+        )
+      } catch {}
+    }
+
+    function readPendingJob() {
+      if (!currentUserId) return null
+      try {
+        const raw = localStorage.getItem(pendingJobKey())
+        if (!raw) return null
+        const parsed = JSON.parse(raw)
+        if (!parsed || typeof parsed.jobId !== 'string') return null
+        // 双保险：值里的归属与当前账号不一致就不认
+        if (parsed.userId && parsed.userId !== currentUserId) return null
+        return parsed
+      } catch {
+        return null
+      }
+    }
+
+    function clearPendingJob() {
+      if (!currentUserId) return
+      try {
+        localStorage.removeItem(pendingJobKey())
+      } catch {}
+    }
+
+    /**
+     * 旧版 pendingJob 也不分账号。为了不在换账号时接到别人的任务，
+     * 这里同样只认「服务端确认归属」的：任务查询接口对非本人返回 404。
+     */
+    async function adoptLegacyPendingJobIfOwned() {
+      if (!currentUserId || localStorage.getItem(pendingJobKey())) return
+      try {
+        const raw = localStorage.getItem(LEGACY_PENDING_JOB_KEY)
+        if (!raw) return
+        const saved = JSON.parse(raw)
+        if (!saved || typeof saved.jobId !== 'string') return
+        const startedAt = Number(saved.startedAt) || 0
+        if (!startedAt || Date.now() - startedAt > 10 * 60 * 1000) return
+
+        await fetchGenerationJob(saved.jobId) // 不是本人的任务会抛 404
+        localStorage.setItem(
+          pendingJobKey(),
+          JSON.stringify({ jobId: saved.jobId, userId: currentUserId, startedAt }),
+        )
+        localStorage.removeItem(LEGACY_PENDING_JOB_KEY)
+      } catch {
+        // 不属于当前账号或任务已过期：旧键留着不动
+      }
+    }
+
+    /** 判断本地是否还有未完成的生成任务，有就恢复进度并开始轮询 */
+    function resumePendingJobIfAny() {
+      const pending = readPendingJob()
+      if (!pending) return
+      if (Date.now() - (pending.startedAt || 0) > 10 * 60 * 1000) {
+        clearPendingJob()
+        return
+      }
+
+      // 回到自由创作页签，并把进度条设在「进行中」的样子
+      if (state.activeTab !== 'free') {
+        state.activeTab = 'free'
+        renderTabs()
+        renderActivePanel()
+      }
+      state.freeBusy = true
+      dom.freePrompt.disabled = true
+      dom.freeSubmit.disabled = true
+      dom.freeSubmit.textContent = '正在生成…'
+      dom.freeStatus.textContent = '检测到未完成的生成任务，正在接回…'
+      freeProgressValue = Math.max(12, freeProgressValue)
+      freeStartedAt = pending.startedAt || Date.now()
+      dom.freeProgress.classList.add('visible')
+      dom.freeProgressLabel.textContent = '后台仍在生成'
+      setFreeProgress(Math.max(freeProgressValue, 20))
+      startFreeProgress()
+
+      pollPendingJob(pending.jobId, 0)
+    }
+
+    async function pollPendingJob(jobId, attempt) {
+      window.clearTimeout(resumeTimer)
+      try {
+        const response = await fetch(`/api/images/jobs/${encodeURIComponent(jobId)}`, {
+          credentials: 'include',
+        })
+        const data = await response.json().catch(() => ({}))
+
+        if (response.status === 404) {
+          // 任务过期或服务重启：清掉标记，避免一直转圈
+          clearPendingJob()
+          finishResume()
+          dom.freeStatus.textContent = '上次的生成任务已失效（可能服务重启过），请重新生成'
+          return
+        }
+        if (!response.ok) throw new Error(data.error || '查询生成状态失败')
+
+        if (data.status === 'running') {
+          dom.freeStatus.textContent = '后台仍在生成，完成后会自动显示'
+          // 进度条随已用时长缓慢推进，最多 94%
+          const elapsedSec = Math.max(0, (data.elapsedMs || 0) / 1000)
+          const guess = Math.min(94, 20 + elapsedSec * 1.2)
+          if (guess > freeProgressValue) setFreeProgress(guess)
+          resumeTimer = window.setTimeout(() => pollPendingJob(jobId, attempt + 1), 1800)
+          return
+        }
+
+        if (data.status === 'done' && data.result) {
+          clearPendingJob()
+          stopFreeProgress()
+          dom.freeProgressLabel.textContent = '图像已生成'
+          setFreeProgress(100)
+          state.freeImageUrl = data.result.imageUrl
+          state.freeImageExtension = getImageExtension(data.result.imageUrl)
+          persistSoon()
+          dom.freeImage.src = `${data.result.imageUrl}?t=${Date.now()}`
+          dom.freePreview.classList.add('has-image')
+          dom.freeDownload.disabled = false
+          dom.freeMaximize.disabled = false
+          dom.freeStatus.textContent = `已接回刷新前的生成结果 · ${data.result.width} × ${data.result.height}`
+          finishResume()
+          showToast('刷新前的生成已完成，结果已恢复')
+          return
+        }
+
+        // 失败
+        clearPendingJob()
+        stopFreeProgress()
+        dom.freeProgressLabel.textContent = '生成中断'
+        dom.freeStatus.textContent = data.error?.message || '生成失败，请重新尝试'
+        finishResume()
+      } catch (error) {
+        if (attempt < 20) {
+          resumeTimer = window.setTimeout(() => pollPendingJob(jobId, attempt + 1), 2500)
+          return
+        }
+        clearPendingJob()
+        finishResume()
+        dom.freeStatus.textContent = '无法查询生成状态，请重新生成'
+      }
+    }
+
+    function finishResume() {
+      window.clearTimeout(resumeTimer)
+      state.freeBusy = false
+      dom.freePrompt.disabled = false
+      dom.freeSubmit.disabled = false
+      dom.freeSubmit.textContent = '生成图像'
+    }
+
     async function generateFreeImage(event) {
       event.preventDefault()
       const prompt = dom.freePrompt.value.trim()
@@ -2120,6 +2554,9 @@ import { requireLogin } from '../lib/guard.js'
       dom.freeStatus.textContent = 'Magpie 正在绘制'
       startFreeProgress()
 
+      const jobId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now())
+      rememberPendingJob(jobId)
+
       try {
         const result = await generateImage({
           prompt,
@@ -2127,8 +2564,10 @@ import { requireLogin } from '../lib/guard.js'
           category: '自由创作',
           name: `自由创作-${timestamp()}`,
           source: 'free',
+          jobId,
         })
         if (!result?.imageUrl) throw new Error('接口没有返回图片地址')
+        clearPendingJob()
 
         stopFreeProgress()
         dom.freeProgressLabel.textContent = '图像已生成'
@@ -2136,12 +2575,14 @@ import { requireLogin } from '../lib/guard.js'
         await sleep(320)
         state.freeImageUrl = result.imageUrl
         state.freeImageExtension = getImageExtension(result.imageUrl)
+        persistSoon()
         dom.freeImage.src = `${result.imageUrl}?t=${Date.now()}`
         dom.freePreview.classList.add('has-image')
         dom.freeDownload.disabled = false
         dom.freeMaximize.disabled = false
         dom.freeStatus.textContent = `生成完成 · ${result.width} × ${result.height}`
       } catch (error) {
+        clearPendingJob()
         stopFreeProgress()
         dom.freeProgressLabel.textContent = '生成中断'
         dom.freeStatus.textContent = error.message || '生成失败，请稍后重试'
@@ -2154,6 +2595,11 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     function renderFreeResult() {
+      // 提示词草稿回填（刷新后不丢失）
+      if (dom.freePrompt && dom.freePrompt.value !== state.freePrompt) {
+        dom.freePrompt.value = state.freePrompt
+        dom.freeCount.textContent = String(state.freePrompt.length)
+      }
       if (state.freeImageUrl) {
         dom.freeImage.src = state.freeImageUrl
         dom.freePreview.classList.add('has-image')

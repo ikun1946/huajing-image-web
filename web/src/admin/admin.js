@@ -2,6 +2,7 @@ import {
   createAdminUser,
   deleteAdminUser,
   fetchAdminStats,
+  fetchAdminTrend,
   fetchAdminUsers,
   fetchCurrentUser,
   logout,
@@ -267,12 +268,135 @@ async function loadStats() {
         </tr>`)
         .join('')
     }
+
+    await renderTrend()
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
       window.location.replace('/login.html')
       return
     }
     console.error(error)
+  }
+}
+
+// ---------- 生图趋势折线图 ----------
+
+const trendDom = {
+  tabs: document.querySelector('#trend-tabs'),
+  total: document.querySelector('#trend-total'),
+  chart: document.querySelector('#trend-chart'),
+  empty: document.querySelector('#trend-empty'),
+}
+
+let trendRange = '7d'
+
+const TREND_LABEL_EVERY = { today: 3, '7d': 1, '30d': 3, '90d': 15, '180d': 30 }
+
+trendDom.tabs?.addEventListener('click', async event => {
+  const tab = event.target.closest('[data-range]')
+  if (!tab || tab.dataset.range === trendRange) return
+
+  trendRange = tab.dataset.range
+  trendDom.tabs.querySelectorAll('.trend-tab').forEach(item => {
+    item.classList.toggle('active', item === tab)
+  })
+  await renderTrend()
+})
+
+async function renderTrend() {
+  if (!trendDom.chart) return
+
+  let payload
+  try {
+    payload = await fetchAdminTrend(trendRange)
+  } catch (error) {
+    console.error(error)
+    return
+  }
+
+  const buckets = payload?.buckets || []
+  trendDom.total.textContent = `本范围共 ${payload.total || 0} 张`
+
+  if (!buckets.some(bucket => bucket.count > 0)) {
+    trendDom.empty.hidden = false
+    trendDom.chart.innerHTML = ''
+    return
+  }
+  trendDom.empty.hidden = true
+
+  drawTrendChart(buckets)
+}
+
+/**
+ * 手写 SVG 折线图：零依赖，宽度自适应容器。
+ * 数据点带悬停提示，横轴按范围抽稀标注。
+ */
+function drawTrendChart(buckets) {
+  const width = Math.max(trendDom.chart.clientWidth || 600, 320)
+  const height = 220
+  const pad = { top: 16, right: 16, bottom: 28, left: 36 }
+  const innerWidth = width - pad.left - pad.right
+  const innerHeight = height - pad.top - pad.bottom
+
+  const maxCount = Math.max(...buckets.map(bucket => bucket.count), 1)
+  const stepX = buckets.length > 1 ? innerWidth / (buckets.length - 1) : 0
+  const xAt = index => pad.left + index * stepX
+  const yAt = count => pad.top + innerHeight - (count / maxCount) * innerHeight
+
+  const points = buckets.map((bucket, index) => ({ ...bucket, x: xAt(index), y: yAt(bucket.count) }))
+  const linePath = points.map((point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(1)},${(pad.top + innerHeight).toFixed(1)} L${points[0].x.toFixed(1)},${(pad.top + innerHeight).toFixed(1)} Z`
+
+  // 横轴网格线：取不超过 4 条的整刻度
+  const gridLines = []
+  const gridSteps = 4
+  for (let i = 1; i <= gridSteps; i += 1) {
+    const value = Math.round((maxCount * i) / gridSteps)
+    const y = yAt(value)
+    gridLines.push(`
+      <line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${(width - pad.right).toFixed(1)}" y2="${y.toFixed(1)}" class="trend-grid"></line>
+      <text x="${pad.left - 6}" y="${(y + 4).toFixed(1)}" class="trend-axis-label" text-anchor="end">${value}</text>
+    `)
+  }
+
+  // 横轴标注：按范围抽稀，避免重叠
+  const every = TREND_LABEL_EVERY[trendRange] || 1
+  const axisLabels = points
+    .filter((point, index) => index % every === 0 || index === points.length - 1)
+    .map(point => `
+      <text x="${point.x.toFixed(1)}" y="${height - 8}" class="trend-axis-label" text-anchor="middle">${escapeHtml(point.label)}</text>
+    `)
+    .join('')
+
+  const dots = points
+    .map(point => `
+      <g class="trend-dot">
+        <circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3"></circle>
+        <circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="12" class="trend-dot-hit"></circle>
+        <title>${escapeHtml(point.label)}：${point.count} 张</title>
+      </g>
+    `)
+    .join('')
+
+  trendDom.chart.setAttribute('viewBox', `0 0 ${width} ${height}`)
+  trendDom.chart.innerHTML = `
+    ${gridLines.join('')}
+    <path d="${areaPath}" class="trend-area"></path>
+    <path d="${linePath}" class="trend-line"></path>
+    ${dots}
+    ${axisLabels}
+  `
+}
+
+window.addEventListener('resize', debounce(() => {
+  if (trendDom.chart?.innerHTML) renderTrend()
+}, 200))
+
+function debounce(fn, wait) {
+  let timer = 0
+  return (...args) => {
+    window.clearTimeout(timer)
+    timer = window.setTimeout(() => fn(...args), wait)
   }
 }
 

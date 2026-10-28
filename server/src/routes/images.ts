@@ -1,12 +1,37 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import { config, findRatio } from '../config.js'
 import { ApiError } from '../lib/errors.js'
 import type { SerialGate } from '../lib/serial-gate.js'
+import { buildFileUrl } from '../lib/url.js'
 import { requestImage } from '../services/magpie.js'
 import { detectImageType, readImageSize } from '../services/imaging.js'
 import type { ImageStorage } from '../services/storage.js'
+import type { QuotaStore } from '../services/quota-store.js'
 import type { UsageStore } from '../services/usage-store.js'
 import { requireAuth } from './auth.js'
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 生图任务状态：刷新页面后可用 jobId 重新接回结果 */
+interface GenerationJob {
+  userId: string
+  status: 'running' | 'done' | 'error'
+  startedAt: number
+  finishedAt?: number
+  result?: {
+    id: string
+    imageUrl: string
+    model: string
+    mimeType: string
+    bytes: number
+    width: number
+    height: number
+    ratio: string
+    tokens: { input: number; output: number | null; total: number | null; source: string }
+  }
+  error?: { message: string; code: string }
+}
 
 interface GenerateBody {
   prompt?: unknown
@@ -17,12 +42,58 @@ interface GenerateBody {
   name?: unknown
   /** 来源标记，用于统计 */
   source?: unknown
+  /** 客户端生成的任务 id，刷新后据此恢复；不传则服务端生成 */
+  jobId?: unknown
 }
 
 export function registerImageRoutes(
   app: FastifyInstance,
-  deps: { storage: ImageStorage; gate: SerialGate; usage: UsageStore },
+  deps: { storage: ImageStorage; gate: SerialGate; usage: UsageStore; quotas: QuotaStore },
 ): void {
+  /**
+   * 生图任务表（内存）。作用：页面刷新会中断浏览器请求，但服务端仍在生成；
+   * 客户端凭 jobId 回来查询即可拿到结果，避免「刷新后进度归零、图也丢了」。
+   * 只保留最近 30 分钟、最多 100 条，按账号隔离查询。
+   */
+  const jobs = new Map<string, GenerationJob>()
+  const JOB_TTL_MS = 30 * 60 * 1000
+  const JOB_LIMIT = 100
+
+  function pruneJobs(): void {
+    const now = Date.now()
+    for (const [id, job] of jobs) {
+      if (job.status !== 'running' && now - (job.finishedAt ?? job.startedAt) > JOB_TTL_MS) {
+        jobs.delete(id)
+      }
+    }
+    while (jobs.size > JOB_LIMIT) {
+      const oldest = jobs.keys().next().value
+      if (oldest === undefined) break
+      jobs.delete(oldest)
+    }
+  }
+
+  // 查询任务状态（只能查自己的任务）
+  app.get('/api/images/jobs/:id', async request => {
+    const auth = requireAuth(request)
+    const rawId = (request.params as { id?: string }).id ?? ''
+    if (!UUID_PATTERN.test(rawId)) {
+      throw new ApiError('INVALID_PROMPT', '无效的任务 ID', 400)
+    }
+    const job = jobs.get(rawId)
+    if (!job || job.userId !== auth.userId) {
+      throw new ApiError('IMAGE_INVALID', '找不到该生成任务（可能已过期）', 404)
+    }
+    return {
+      jobId: rawId,
+      status: job.status,
+      startedAt: new Date(job.startedAt).toISOString(),
+      elapsedMs: (job.finishedAt ?? Date.now()) - job.startedAt,
+      result: job.result ?? null,
+      error: job.error ?? null,
+    }
+  })
+
   app.post('/api/images', async (request, reply) => {
     const auth = requireAuth(request)
     const body = (request.body ?? {}) as GenerateBody
@@ -44,7 +115,32 @@ export function registerImageRoutes(
       throw new ApiError('RATIO_INVALID', '请选择有效的图片比例')
     }
 
+    // 任务 id：客户端可预先提供（刷新后靠它回来取结果），否则服务端生成
+    const jobId =
+      typeof body.jobId === 'string' && UUID_PATTERN.test(body.jobId)
+        ? body.jobId
+        : randomUUID()
+
+    pruneJobs()
+    const job: GenerationJob = { userId: auth.userId, status: 'running', startedAt: Date.now() }
+    jobs.set(jobId, job)
+
+    // 每日额度：0 表示不限额
+    const quota = deps.quotas.get(auth.userId)
+    if (quota.dailyLimit > 0) {
+      const usedToday = await deps.usage.countToday(auth.userId)
+      if (usedToday >= quota.dailyLimit) {
+        throw new ApiError(
+          'QUOTA_EXCEEDED',
+          `今日生图额度已用完（${usedToday}/${quota.dailyLimit} 张），明天再来或联系管理员调整额度`,
+          429,
+        )
+      }
+    }
+
     // 串行闸门：同一时刻只允许一个生图请求打向 Magpie
+    const startedAt = Date.now()
+    try {
     const generated = await deps.gate.run(async () => {
       const upstream = await requestImage(
         {
@@ -71,7 +167,7 @@ export function registerImageRoutes(
         height: size?.height,
       })
 
-      return { stored, model: upstream.model, mimeType: type.mimeType, size }
+      return { stored, model: upstream.model, mimeType: type.mimeType, size, tokens: upstream.tokens }
     })
 
     const category = typeof body.category === 'string' ? body.category : '未分类'
@@ -79,7 +175,7 @@ export function registerImageRoutes(
     const source =
       body.source === 'batch' || body.source === 'free' ? body.source : 'studio'
 
-    // 记录本次生图归属，供管理端统计
+    // 记录本次生图归属与详情，供生成记录与管理端统计
     await deps.usage.record({
       userId: auth.userId,
       username: auth.username,
@@ -91,53 +187,46 @@ export function registerImageRoutes(
       width: generated.size?.width ?? ratio.nativeWidth,
       height: generated.size?.height ?? ratio.nativeHeight,
       bytes: generated.stored.bytes,
+      prompt,
+      durationMs: Date.now() - startedAt,
+      relativePath: generated.stored.relativePath,
+      tokensInput: generated.tokens.inputTokens,
+      tokensOutput: generated.tokens.outputTokens,
+      tokensSource: generated.tokens.source,
     })
 
-    return reply.send({
+    const payload = {
       id: generated.stored.id,
-      imageUrl: buildImageUrl(
-        request,
-        generated.stored.id,
-        generated.stored.relativePath,
-        typeExtension(generated.mimeType),
-      ),
+      imageUrl: buildFileUrl(request, generated.stored.relativePath),
       model: generated.model,
       mimeType: generated.mimeType,
       bytes: generated.stored.bytes,
       width: generated.size?.width ?? ratio.nativeWidth,
       height: generated.size?.height ?? ratio.nativeHeight,
       ratio: ratio.id,
-    })
+      tokens: {
+        input: generated.tokens.inputTokens,
+        output: generated.tokens.outputTokens,
+        total: generated.tokens.totalTokens,
+        source: generated.tokens.source,
+      },
+    }
+
+    // 记入任务表：页面若已刷新，凭 jobId 回来就能取到这份结果
+    job.status = 'done'
+    job.finishedAt = Date.now()
+    job.result = { ...payload, tokens: { ...payload.tokens, source: payload.tokens.source } }
+
+    return reply.send({ ...payload, jobId })
+    } catch (error) {
+      // 失败也要落到任务表，避免刷新后一直显示「生成中」
+      job.status = 'error'
+      job.finishedAt = Date.now()
+      job.error = {
+        message: error instanceof ApiError ? error.message : '生成失败',
+        code: error instanceof ApiError ? error.code : 'INTERNAL_ERROR',
+      }
+      throw error
+    }
   })
-}
-
-function buildImageUrl(
-  request: { headers: Record<string, unknown>; protocol?: string },
-  id: string,
-  relativePath: string,
-  extension: string,
-): string {
-  const encoded = relativePath.split('/').map(encodeURIComponent).join('/')
-  const configured = config.publicBaseUrl
-  if (configured) return `${configured}/api/files/${encoded}`
-
-  const host = (request.headers['x-forwarded-host'] as string) || (request.headers.host as string)
-  const protocol =
-    (request.headers['x-forwarded-proto'] as string) ||
-    request.protocol ||
-    'http'
-
-  if (!host) return `/api/files/${encoded}`
-  return `${protocol}://${host}/api/files/${encoded}`
-}
-
-function typeExtension(mimeType: string): string {
-  switch (mimeType) {
-    case 'image/jpeg':
-      return 'jpg'
-    case 'image/webp':
-      return 'webp'
-    default:
-      return 'png'
-  }
 }

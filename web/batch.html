@@ -5,15 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>画境 · 资产批量生图</title>
   <link rel="stylesheet" href="/src/batch/batch.css">
+  <link rel="stylesheet" href="/src/lib/prompt-tools.css">
+  <link rel="stylesheet" href="/src/lib/history-panel.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E境%3C/text%3E%3C/svg%3E">
 </head>
 <body>
   <div class="app">
     <header class="masthead">
       <div class="brand">
-        <div>
-          <p class="eyebrow">Magpie Asset Workbench</p>
+        <div class="brand-text">
           <h1>画境 · 资产批量</h1>
+          <p class="brand-sub">导入资产表逐项生图，或在自由创作里直接写提示词</p>
         </div>
         <div class="brand-mark" aria-hidden="true">境</div>
       </div>
@@ -33,11 +35,17 @@
           </svg>
           <span>导入资产 JSON</span>
         </button>
-        <a class="button ghost" href="/studio">单张工作台</a>
         <div class="user-avatar" id="user-avatar" tabindex="0" role="button" aria-haspopup="menu" aria-label="账户菜单">
           <span class="avatar-letter" id="avatar-letter" aria-hidden="true">境</span>
           <div class="avatar-menu" id="avatar-menu" role="menu">
             <span class="avatar-name" id="header-user"></span>
+            <button class="history-entry" id="history-button" type="button" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 3"></path>
+              </svg>
+              <span>生成记录</span>
+            </button>
             <button class="logout-button" id="logout-button" type="button" role="menuitem">退出登录</button>
           </div>
         </div>
@@ -144,15 +152,45 @@
           <form class="free-form" id="free-form">
             <div class="label-row">
               <span>描述你想看见的画面</span>
-              <span class="counter"><span id="free-count">0</span> / 4000</span>
+              <span class="counter"><span id="free-count">0</span> 字</span>
             </div>
-            <textarea
-              class="textarea"
-              id="free-prompt"
-              maxlength="4000"
-              placeholder="输入画面、人物、场景、光影与材质描述……"
-              required
-            ></textarea>
+            <div class="prompt-shell">
+              <textarea
+                class="textarea"
+                id="free-prompt"
+                aria-label="自由创作提示词"
+                placeholder="输入画面、人物、场景、光影与材质描述……"
+                required
+              ></textarea>
+              <div class="prompt-float-tools" aria-label="提示词快捷操作">
+                <button
+                  class="prompt-float-button"
+                  id="free-prompt-maximize"
+                  type="button"
+                  title="最大化提示词"
+                  aria-label="最大化提示词"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8.5 3.5h-5v5"></path>
+                    <path d="M15.5 3.5h5v5"></path>
+                    <path d="M20.5 15.5v5h-5"></path>
+                    <path d="M3.5 15.5v5h5"></path>
+                  </svg>
+                </button>
+                <button
+                  class="prompt-float-button"
+                  id="free-prompt-copy"
+                  type="button"
+                  title="复制提示词"
+                  aria-label="复制提示词"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                    <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
 
             <div class="free-params">
               <div>
@@ -248,7 +286,7 @@
 
         <section class="prompt-editor">
           <h4>生图提示词</h4>
-          <textarea class="textarea" id="modal-prompt" maxlength="4000"></textarea>
+          <textarea class="textarea" id="modal-prompt" maxlength="4000" aria-label="资产生图提示词"></textarea>
           <div class="prompt-meta">
             <span>提示词会自动保存到当前浏览器</span>
             <span><span id="modal-prompt-count">0</span> / 4000</span>
@@ -312,6 +350,16 @@
   </aside>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="history-panel" id="history-panel" role="dialog" aria-label="生成记录">
+    <div class="history-head">
+      <span class="history-title">生成记录</span>
+      <span class="history-meta" id="history-meta"></span>
+      <button class="history-close" id="history-close" type="button" aria-label="关闭生成记录">✕</button>
+    </div>
+    <input class="history-search" id="history-search" type="search" placeholder="搜索名称或提示词…" aria-label="搜索生成记录">
+    <ul class="history-list" id="history-list"></ul>
+  </div>
 
   <script type="module" src="/src/batch/batch.js"></script>
 </body>

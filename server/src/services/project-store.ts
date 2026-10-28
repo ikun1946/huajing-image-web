@@ -27,6 +27,8 @@ export interface ProjectStyles {
 
 export interface Project {
   id: string
+  /** 归属账号 id；历史遗留数据为 '' 时仅管理员/迁移前可见 */
+  ownerId: string
   name: string
   fileName: string
   importedAt: string
@@ -90,15 +92,32 @@ export class ProjectStore {
     return (await this.read()).projects
   }
 
+  /** 列出某账号自己的项目（activeProjectId 也按账号区分）。 */
+  async listForOwner(ownerId: string): Promise<{ projects: Project[]; activeProjectId: string }> {
+    const database = await this.read()
+    return {
+      projects: database.projects.filter(project => (project.ownerId || '') === ownerId),
+      activeProjectId: this.activeIdForOwner(database, ownerId),
+    }
+  }
+
+  /** 取该账号的当前项目 id；未设置时回落到其第一个项目。 */
+  activeIdForOwner(database: ProjectDatabase, ownerId: string): string {
+    const own = database.projects.filter(project => (project.ownerId || '') === ownerId)
+    const active = own.find(project => project.id === database.activeProjectId)
+    return active?.id || own[0]?.id || ''
+  }
+
   async find(id: string): Promise<Project | undefined> {
     return (await this.read()).projects.find(project => project.id === id)
   }
 
   /** 新建一个空项目，名称可自定义。 */
-  async create(input: { name?: string; fileName?: string }): Promise<Project> {
+  async create(input: { name?: string; fileName?: string; ownerId?: string }): Promise<Project> {
     const now = new Date().toISOString()
     const project: Project = {
       id: randomUUID(),
+      ownerId: input.ownerId || '',
       name: (input.name || input.fileName || '未命名项目').trim(),
       fileName: input.fileName || '',
       importedAt: now,
@@ -205,6 +224,7 @@ function normalizeProject(input: Project): Project {
 
   return {
     id: input.id,
+    ownerId: String(input.ownerId || ''),
     name: String(input.name || input.fileName || '未命名项目'),
     fileName: String(input.fileName || ''),
     importedAt: String(input.importedAt || ''),

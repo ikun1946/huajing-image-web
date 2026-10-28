@@ -16,6 +16,18 @@ export interface UsageEntry {
   width: number
   height: number
   bytes: number
+  /** 提示词全文，供生成记录回看 */
+  prompt: string
+  /** 生图耗时（毫秒），从请求进入后端到上游返回并落盘 */
+  durationMs: number
+  /** 图片在存储目录内的相对路径，如 角色/苏晚棠-1086x1448.png */
+  relativePath: string
+  /** 提示词消耗 token（上游返回真实值或本地估算） */
+  tokensInput: number
+  /** 生成消耗 token；上游未提供时为 null */
+  tokensOutput: number | null
+  /** token 数据来源：upstream 真实 / estimated 估算 */
+  tokensSource: 'upstream' | 'estimated'
   createdAt: string
 }
 
@@ -57,18 +69,39 @@ export class UsageStore {
 
   /** 记录一次生图。串行化写入，避免并发丢数据。 */
   async record(entry: Omit<UsageEntry, 'id' | 'createdAt'>): Promise<UsageEntry> {
+    let created: UsageEntry | undefined
     this.pending = this.pending.then(async () => {
       const database = await this.read()
-      const full: UsageEntry = {
+      created = {
         ...entry,
         id: randomUUID(),
         createdAt: new Date().toISOString(),
       }
-      database.entries.push(full)
+      database.entries.push(created)
       await this.write(database)
     })
     await this.pending
-    return { ...entry, id: '', createdAt: '' }
+    return created as UsageEntry
+  }
+
+  /** 统计某账号「今天」已生成张数（按本地日期 00:00 起算）。 */
+  async countToday(userId: string): Promise<number> {
+    const now = new Date()
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const entries = (await this.read()).entries
+    return entries.filter(entry => {
+      if (entry.userId !== userId) return false
+      const time = new Date(entry.createdAt).getTime()
+      return Number.isFinite(time) && time >= dayStart
+    }).length
+  }
+
+  /** 按账号读取生图记录，最新在前。 */
+  async entriesForUser(userId: string): Promise<UsageEntry[]> {
+    const entries = (await this.read()).entries
+    return entries
+      .filter(entry => entry.userId === userId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
   }
 
   async entries(): Promise<UsageEntry[]> {

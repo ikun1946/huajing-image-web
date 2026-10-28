@@ -1,0 +1,182 @@
+/* ===== 提示词悬浮工具与最大化编辑器（单张/批量页共用） =====
+   由 studio.css 的同名区块抽出；批量页通过本文件获得同样能力。 */
+
+/* ===== 提示词框悬浮工具（最大化 / 复制） ===== */
+
+.prompt-shell {
+  position: relative;
+}
+
+.prompt-float-tools {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  /* 默认隐藏，鼠标靠近提示词框时浮现 */
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+/* 只在鼠标进入输入框右上角的热区时浮现（热区由 JS 打 .tools-near 类），
+   键盘 Tab 聚焦到按钮本身时也显示，保证可访问性 */
+.prompt-shell.tools-near .prompt-float-tools,
+.prompt-float-tools:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* 小号方形玻璃按钮，只留图标，紧凑不占地 */
+.prompt-float-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  color: rgba(22, 28, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.26)),
+    rgba(240, 244, 238, 0.18);
+  box-shadow:
+    0 4px 14px rgba(13, 17, 14, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  font-size: 11px;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.prompt-float-button svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.prompt-float-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.9);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.4)),
+    rgba(240, 244, 238, 0.26);
+}
+
+.prompt-float-button:active {
+  transform: translateY(0);
+}
+
+/* ===== 提示词最大化编辑器 ===== */
+
+.prompt-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 17, 14, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 28px;
+}
+
+.prompt-editor.visible {
+  display: flex;
+}
+
+.prompt-editor-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(760px, 100%);
+  height: min(560px, 100%);
+  padding: 18px 20px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.82), rgba(255, 253, 248, 0.66)),
+    rgba(240, 244, 238, 0.5);
+  box-shadow: 0 30px 90px rgba(13, 17, 14, 0.35);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+.prompt-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.prompt-editor-close {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.prompt-editor-close:hover {
+  background: rgba(13, 17, 14, 0.06);
+  color: var(--ink);
+}
+
+.prompt-editor-text {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  padding: 16px 18px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(255, 253, 248, 0.92);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.prompt-editor-text:focus {
+  border-color: rgba(179, 78, 45, 0.5);
+}
+
+.prompt-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.prompt-editor-done {
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 999px;
+  padding: 8px 22px;
+  color: #fffdf8;
+  background: #425a46;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.prompt-editor-done:hover {
+  background: #37503f;
+}

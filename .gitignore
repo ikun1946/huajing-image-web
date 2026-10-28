@@ -13,6 +13,13 @@ styles.json
 *.json.bak
 *.json.tmp
 
+# 每账号风格库（styles/<userId>.json）与运行期监控数据（流量/限流/额度）
+styles/
+data/
+
+# 本地工具产物（钩子状态、扫描报告等）
+.mimosa/
+
 # 重构前的旧版单文件实现，无人引用
 legacy-single-file/
 

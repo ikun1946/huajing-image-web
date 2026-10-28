@@ -6,9 +6,22 @@ export interface MagpieOptions {
   timeoutMs: number
 }
 
+export interface TokenUsage {
+  /** 提示词（输入）消耗的 token */
+  inputTokens: number
+  /** 生成（输出）消耗的 token；无上游数据时为 null */
+  outputTokens: number | null
+  totalTokens: number | null
+  /** upstream = 上游真实返回；estimated = 本地按字符估算 */
+  source: 'upstream' | 'estimated'
+  /** 上游返回的原始 usage 字段（若有），便于日后扩展 */
+  raw?: unknown
+}
+
 export interface MagpieImageResult {
   buffer: Buffer
   model: string
+  tokens: TokenUsage
 }
 
 export async function requestImage(
@@ -64,6 +77,71 @@ export async function requestImage(
   return {
     buffer,
     model: extractModel(payload) || options.model,
+    tokens: extractTokenUsage(payload) ?? estimateTokens(`${params.prompt}
+
+${params.ratioHint}`),
+  }
+}
+
+/**
+ * 提取上游返回的 token 用量。
+ * 图像接口是否返回 usage 取决于上游实现：OpenAI 系 gpt-image 会返回
+ * usage.input_tokens / output_tokens / total_tokens，部分网关则不返回。
+ * 这里兼容多种字段形态，取不到就返回 undefined，由调用方降级为估算。
+ */
+function extractTokenUsage(payload: unknown): TokenUsage | undefined {
+  if (!payload || typeof payload !== 'object') return undefined
+  const usage = (payload as { usage?: unknown }).usage
+  if (!usage || typeof usage !== 'object') return undefined
+
+  const source = usage as Record<string, unknown>
+  const inputTokens = pickNumber(source.input_tokens, source.prompt_tokens)
+  const outputTokens = pickNumber(source.output_tokens, source.completion_tokens)
+  const totalTokens = pickNumber(source.total_tokens)
+
+  if (inputTokens === null && outputTokens === null && totalTokens === null) return undefined
+
+  return {
+    inputTokens: inputTokens ?? 0,
+    outputTokens,
+    totalTokens: totalTokens ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
+    source: 'upstream',
+    raw: usage,
+  }
+}
+
+function pickNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.round(value)
+  }
+  return null
+}
+
+/**
+ * 本地 token 估算（上游不返回 usage 时使用）。
+ * 规则：中日韩字符按 1 字 1 token，其余按 4 字符 1 token，与常见分词器的
+ * 粗粒度估算接近，误差足够用于「提示词有多长」的判断，但不是计费依据。
+ */
+export function estimateTokens(text: string): TokenUsage {
+  let cjk = 0
+  let other = 0
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0
+    const isCjk =
+      (code >= 0x3040 && code <= 0x30ff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xff00 && code <= 0xffef)
+    if (isCjk) cjk += 1
+    else other += 1
+  }
+  const inputTokens = cjk + Math.ceil(other / 4)
+  return {
+    inputTokens,
+    outputTokens: null,
+    totalTokens: null,
+    source: 'estimated',
   }
 }
 

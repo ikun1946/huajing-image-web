@@ -3,54 +3,121 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>画境 · 登录</title>
-  <link rel="stylesheet" href="/src/index/studio.css">
-  <link rel="stylesheet" href="/src/admin/admin.css">
+  <link rel="stylesheet" href="/src/login/login.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E境%3C/text%3E%3C/svg%3E">
 </head>
-<body class="login-body">
-  <main class="login-card">
-    <p class="eyebrow">MAGPIE × GPT IMAGE</p>
-    <h1 class="login-title">画境</h1>
-    <p class="login-sub">请登录后使用生图工作台</p>
+<body>
+  <main class="card">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">境</span>
+      <span class="brand-word">画境</span>
+    </div>
 
-    <form id="login-form" class="login-form">
-      <label class="login-field">
-        <span>用户名</span>
-        <input class="login-input" id="username" name="username" autocomplete="username" required>
+    <h1 class="title" id="card-title">登录工作台</h1>
+    <p class="lede" id="card-lede">用已有账号进入生图工作台；还没有账号可以提交申请，管理员审核通过后即可登录。</p>
+
+    <div class="tabs" id="auth-tabs" role="tablist" aria-label="登录或申请账号">
+      <button class="tab active" type="button" role="tab" id="tab-login"
+              aria-selected="true" aria-controls="login-form" data-mode="login">登录</button>
+      <button class="tab" type="button" role="tab" id="tab-register"
+              aria-selected="false" aria-controls="register-form" tabindex="-1" data-mode="register">申请账号</button>
+    </div>
+
+    <!-- 登录 -->
+    <form class="form" id="login-form" role="tabpanel" aria-labelledby="tab-login" novalidate>
+      <label class="field">
+        <span class="field-label">用户名</span>
+        <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required>
       </label>
-      <label class="login-field">
-        <span>密码</span>
-        <input class="login-input" id="password" name="password" type="password" autocomplete="current-password" required>
+      <label class="field">
+        <span class="field-label">密码</span>
+        <span class="pass-wrap">
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+          <button class="eye" type="button" data-eye="password" aria-label="显示密码" aria-pressed="false">
+            <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l16 16"/><path d="M9.2 5.9A9.6 9.6 0 0 1 12 5.8c5.8 0 9.4 6.2 9.4 6.2a17 17 0 0 1-2.6 3.4"/><path d="M6.1 7.9A17 17 0 0 0 2.6 12S6.2 18.2 12 18.2c1.5 0 2.8-.4 4-1"/><path d="M10 10a2.6 2.6 0 0 0 3.6 3.6"/></svg>
+          </button>
+        </span>
       </label>
-      <p class="login-error" id="login-error" role="alert" hidden></p>
-      <button class="login-submit" id="login-submit" type="submit">登入</button>
+      <p class="form-msg" id="login-error" role="alert" data-hint="忘记密码可以联系管理员重置。">忘记密码可以联系管理员重置。</p>
+      <button class="submit" id="login-submit" type="submit">登录</button>
     </form>
 
-    <div class="login-setup" id="setup-panel" hidden>
-      <p class="login-sub">首次部署：创建第一个管理员账号</p>
-      <form id="setup-form" class="login-form">
-        <label class="login-field">
-          <span>管理密钥</span>
-          <input class="login-input" id="setup-key" type="password" autocomplete="off" required>
+    <!-- 申请账号：提交后进审核队列 -->
+    <form class="form" id="register-form" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>
+      <label class="field">
+        <span class="field-label">用户名</span>
+        <input class="input" id="reg-username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+        <span class="field-hint">3–24 位字母、数字、下划线或汉字，注册后不能改</span>
+      </label>
+      <label class="field">
+        <span class="field-label">显示名<span class="opt">可选</span></span>
+        <input class="input" id="reg-display-name" autocomplete="nickname">
+      </label>
+      <label class="field">
+        <span class="field-label">密码</span>
+        <span class="pass-wrap">
+          <input class="input" id="reg-password" type="password" autocomplete="new-password" required>
+          <button class="eye" type="button" data-eye="reg-password" aria-label="显示密码" aria-pressed="false">
+            <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l16 16"/><path d="M9.2 5.9A9.6 9.6 0 0 1 12 5.8c5.8 0 9.4 6.2 9.4 6.2a17 17 0 0 1-2.6 3.4"/><path d="M6.1 7.9A17 17 0 0 0 2.6 12S6.2 18.2 12 18.2c1.5 0 2.8-.4 4-1"/><path d="M10 10a2.6 2.6 0 0 0 3.6 3.6"/></svg>
+          </button>
+        </span>
+        <span class="field-hint">至少 6 位</span>
+      </label>
+      <label class="field">
+        <span class="field-label">确认密码</span>
+        <span class="pass-wrap">
+          <input class="input" id="reg-password-confirm" type="password" autocomplete="new-password" required>
+          <button class="eye" type="button" data-eye="reg-password-confirm" aria-label="显示密码" aria-pressed="false">
+            <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l16 16"/><path d="M9.2 5.9A9.6 9.6 0 0 1 12 5.8c5.8 0 9.4 6.2 9.4 6.2a17 17 0 0 1-2.6 3.4"/><path d="M6.1 7.9A17 17 0 0 0 2.6 12S6.2 18.2 12 18.2c1.5 0 2.8-.4 4-1"/><path d="M10 10a2.6 2.6 0 0 0 3.6 3.6"/></svg>
+          </button>
+        </span>
+      </label>
+      <p class="form-msg" id="register-error" role="alert" data-hint="提交后要等管理员审核，审核期间还不能登录。">提交后要等管理员审核，审核期间还不能登录。</p>
+      <button class="submit" id="register-submit" type="submit">提交申请</button>
+    </form>
+
+    <!-- 申请成功 -->
+    <section class="done" id="register-done" hidden aria-live="polite">
+      <span class="done-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5 10-11"/></svg>
+      </span>
+      <p>账号 <b id="done-username"></b> 已进入审核队列。管理员在服务端控制台通过后，用刚才设置的密码就能登录。</p>
+      <button class="ghost" id="done-back" type="button">返回登录</button>
+    </section>
+
+    <!-- 首次部署：账号库为空时创建第一个管理员 -->
+    <section class="setup" id="setup-panel" hidden>
+      <h1 class="title">创建第一个管理员</h1>
+      <p class="lede">账号库还是空的。填入管理密钥，创建管理员账号后即可使用控制台。</p>
+      <form id="setup-form" class="form" novalidate>
+        <label class="field">
+          <span class="field-label">管理密钥</span>
+          <input class="input" id="setup-key" type="password" autocomplete="off" required>
         </label>
-        <label class="login-field">
-          <span>管理员用户名</span>
-          <input class="login-input" id="setup-username" autocomplete="off" required>
+        <label class="field">
+          <span class="field-label">管理员用户名</span>
+          <input class="input" id="setup-username" autocomplete="off" autocapitalize="off" spellcheck="false" required>
         </label>
-        <label class="login-field">
-          <span>显示名</span>
-          <input class="login-input" id="setup-display-name" autocomplete="off">
+        <label class="field">
+          <span class="field-label">显示名<span class="opt">可选</span></span>
+          <input class="input" id="setup-display-name" autocomplete="nickname">
         </label>
-        <label class="login-field">
-          <span>密码</span>
-          <input class="login-input" id="setup-password" type="password" autocomplete="new-password" required>
+        <label class="field">
+          <span class="field-label">密码</span>
+          <input class="input" id="setup-password" type="password" autocomplete="new-password" required>
+          <span class="field-hint">至少 6 位</span>
         </label>
-        <p class="login-error" id="setup-error" role="alert" hidden></p>
-        <button class="login-submit" id="setup-submit" type="submit">创建管理员</button>
+        <p class="form-msg" id="setup-error" role="alert" data-hint="管理密钥由部署方在服务端配置。">管理密钥由部署方在服务端配置。</p>
+        <button class="submit" id="setup-submit" type="submit">创建管理员</button>
       </form>
-    </div>
-    <p class="login-foot">账号由管理员统一创建，本页不提供注册。</p>
+    </section>
+
+    <p class="foot">画境 · 局域网生图工作台</p>
   </main>
 
   <script type="module" src="/src/login/login.js"></script>

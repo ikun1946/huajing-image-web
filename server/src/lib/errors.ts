@@ -8,12 +8,15 @@ export type ApiErrorCode =
   | 'AUTH_REQUIRED'
   | 'AUTH_INVALID'
   | 'AUTH_FORBIDDEN'
+  | 'AUTH_PENDING'
   | 'UPSTREAM_UNREACHABLE'
   | 'UPSTREAM_TIMEOUT'
   | 'UPSTREAM_ERROR'
   | 'UPSTREAM_BAD_RESPONSE'
   | 'IMAGE_INVALID'
   | 'IMAGE_UNSUPPORTED'
+  | 'RATE_LIMITED'
+  | 'QUOTA_EXCEEDED'
   | 'INTERNAL_ERROR'
 
 export class ApiError extends Error {
@@ -36,6 +39,8 @@ function defaultStatusFor(code: ApiErrorCode): number {
     case 'AUTH_INVALID':
       return 401
     case 'AUTH_FORBIDDEN':
+      return 403
+    case 'AUTH_PENDING':
       return 403
     default:
       return 400

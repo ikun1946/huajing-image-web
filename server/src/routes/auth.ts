@@ -9,6 +9,21 @@ interface LoginBody {
   password?: unknown
 }
 
+interface RegisterBody {
+  username?: unknown
+  displayName?: unknown
+  password?: unknown
+}
+
+/* 用户名：3–24 位，字母/数字/下划线/点/横线/汉字；不接受空格和符号，
+   避免出现难以输入或与展示混淆的账号名 */
+const USERNAME_PATTERN = /^[A-Za-z0-9_.\-\u4e00-\u9fa5]{3,24}$/
+const PASSWORD_MIN = 6
+const PASSWORD_MAX = 128
+const DISPLAY_NAME_MAX = 24
+/** 待审核申请上限：防止有人批量灌申请把审核队列刷爆 */
+const MAX_PENDING = 30
+
 export interface AuthContext {
   userId: string
   username: string
@@ -35,10 +50,14 @@ export function registerAuthRoutes(
       throw new ApiError('AUTH_INVALID', '请输入用户名和密码')
     }
 
-    const user = await deps.users.authenticate(username, password)
-    if (!user) {
+    const result = await deps.users.authenticate(username, password)
+    if (!result.ok) {
+      if (result.reason === 'pending') {
+        throw new ApiError('AUTH_PENDING', '账号正在等待管理员审核，审核通过后即可登录', 403)
+      }
       throw new ApiError('AUTH_INVALID', '用户名或密码不正确，或账号已被停用')
     }
+    const user = result.user
 
     const session = deps.sessions.create(user.id)
     reply.setCookie(SESSION_COOKIE, session.token, {
@@ -59,6 +78,8 @@ export function registerAuthRoutes(
     return {
       needsSetup: users.length === 0,
       setupEnabled: Boolean(config.adminSetupKey),
+      // 账号库初始化后开放自助申请（仍需管理员审核）
+      registrationOpen: users.length > 0,
     }
   })
   app.post('/api/auth/setup', async (request) => {
@@ -90,6 +111,57 @@ export function registerAuthRoutes(
     })
     return { user: toPublicUser(user) }
   })
+
+  /**
+   * 自助申请账号：只落一条待审核记录，账号还不能登录。
+   * 管理员在服务端控制台通过后（/api/admin/registrations/:id/approve）才生效。
+   */
+  app.post('/api/auth/register', async request => {
+    const active = await deps.users.list()
+    if (active.length === 0) {
+      throw new ApiError('AUTH_INVALID', '账号库还没有初始化，请先创建管理员', 409)
+    }
+
+    const pendingCount = (await deps.users.listPending()).length
+    if (pendingCount >= MAX_PENDING) {
+      throw new ApiError(
+        'RATE_LIMITED',
+        `待审核的申请已有 ${pendingCount} 条，请稍后再试或直接联系管理员`,
+        429,
+      )
+    }
+
+    const body = (request.body ?? {}) as RegisterBody
+    const username = typeof body.username === 'string' ? body.username.trim() : ''
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : ''
+    const password = typeof body.password === 'string' ? body.password : ''
+
+    if (!USERNAME_PATTERN.test(username)) {
+      throw new ApiError('AUTH_INVALID', '用户名需为 3–24 位字母、数字、下划线或汉字', 400)
+    }
+    if (password.length < PASSWORD_MIN) {
+      throw new ApiError('AUTH_INVALID', `密码至少 ${PASSWORD_MIN} 位`, 400)
+    }
+    if (password.length > PASSWORD_MAX) {
+      throw new ApiError('AUTH_INVALID', `密码不能超过 ${PASSWORD_MAX} 位`, 400)
+    }
+    if (displayName.length > DISPLAY_NAME_MAX) {
+      throw new ApiError('AUTH_INVALID', `显示名不能超过 ${DISPLAY_NAME_MAX} 个字符`, 400)
+    }
+
+    try {
+      const record = await deps.users.register({ username, displayName, password })
+      // 审计用：只记用户名和来源，不记密码
+      request.log.info(
+        { username: record.username, ip: request.ip },
+        '收到新的账号申请，等待管理员审核',
+      )
+      return { status: 'pending', username: record.username }
+    } catch (error) {
+      throw new ApiError('AUTH_INVALID', (error as Error).message, 409)
+    }
+  })
+
   app.post('/api/auth/logout', async (request, reply) => {
     const token = readSessionToken(request)
     deps.sessions.destroy(token)

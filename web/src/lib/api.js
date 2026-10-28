@@ -34,11 +34,16 @@ export async function request(path, options = {}) {
   return payload
 }
 
-export function generateImage({ prompt, ratio, category, name, source }) {
+export function generateImage({ prompt, ratio, category, name, source, jobId }) {
   return request('/api/images', {
     method: 'POST',
-    body: JSON.stringify({ prompt, ratio, category, name, source }),
+    body: JSON.stringify({ prompt, ratio, category, name, source, jobId }),
   })
+}
+
+/** 查询生图任务状态：页面刷新后用 jobId 接回仍在后台生成的图片 */
+export function fetchGenerationJob(jobId) {
+  return request(`/api/images/jobs/${encodeURIComponent(jobId)}`, { method: 'GET' })
 }
 
 export function fetchServerConfig() {
@@ -104,6 +109,10 @@ export function deleteAdminUser(id) {
 export function fetchAdminStats() {
   return request('/api/admin/stats', { method: 'GET' })
 }
+
+export function fetchAdminTrend(range) {
+  return request(`/api/admin/stats/trend?range=${encodeURIComponent(range)}`, { method: 'GET' })
+}
 // ---------- 项目 ----------
 
 export function fetchProjects() {
@@ -134,4 +143,10 @@ export function deleteProject(id) {
 
 export function activateProject(id) {
   return request(`/api/projects/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+}
+
+// ---------- 生成记录 ----------
+
+export function fetchHistory(limit = 200) {
+  return request(`/api/history?limit=${encodeURIComponent(limit)}`, { method: 'GET' })
 }

@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { isValidFilename } from '../lib/filename.js'
 
 export interface StyleItem {
   id: string
@@ -23,42 +24,53 @@ export interface StyleLibrary {
 
 const TYPES = ['role', 'scene', 'prop'] as const
 
+/**
+ * 按账号隔离的风格库：每个账号一份 <root>/<userId>.json，
+ * 互不可见、互不干扰。
+ */
 export class StyleLibraryStore {
-  private readonly file: string
-  private cache: StyleLibrary | null = null
+  private readonly root: string
+  private readonly cache = new Map<string, StyleLibrary>()
 
-  constructor(file: string) {
-    this.file = file
+  constructor(root: string) {
+    this.root = root
   }
 
-  async read(): Promise<StyleLibrary> {
-    if (this.cache) return this.cache
-
-    try {
-      const raw = await readFile(this.file, 'utf8')
-      const parsed = JSON.parse(raw) as Partial<StyleLibrary>
-      this.cache = normalize(parsed)
-    } catch {
-      this.cache = emptyLibrary()
+  private fileFor(ownerId: string): string {
+    if (!isValidFilename(ownerId)) {
+      throw new Error('非法的账号标识')
     }
-    return this.cache
+    return join(this.root, `${ownerId}.json`)
   }
 
-  async write(library: StyleLibrary): Promise<StyleLibrary> {
+  async read(ownerId: string): Promise<StyleLibrary> {
+    const cached = this.cache.get(ownerId)
+    if (cached) return cached
+
+    let library = emptyLibrary()
+    try {
+      const raw = await readFile(this.fileFor(ownerId), 'utf8')
+      library = normalize(JSON.parse(raw) as Partial<StyleLibrary>)
+    } catch {
+      // 文件不存在或损坏时按空库处理，首次保存时会落盘
+    }
+
+    this.cache.set(ownerId, library)
+    return library
+  }
+
+  async write(ownerId: string, library: StyleLibrary): Promise<StyleLibrary> {
     const normalized = normalize(library)
-    await mkdir(dirname(this.file), { recursive: true })
+    const file = this.fileFor(ownerId)
+    await mkdir(dirname(file), { recursive: true })
 
     // 先写临时文件再改名，避免写入中断导致文件损坏
-    const temp = `${this.file}.tmp`
+    const temp = `${file}.tmp`
     await writeFile(temp, JSON.stringify(normalized, null, 2), 'utf8')
-    await rename(temp, this.file)
+    await rename(temp, file)
 
-    this.cache = normalized
+    this.cache.set(ownerId, normalized)
     return normalized
-  }
-
-  get path(): string {
-    return this.file
   }
 }
 

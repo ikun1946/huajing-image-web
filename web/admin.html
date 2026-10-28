@@ -16,7 +16,6 @@
         <h1>画境后台</h1>
       </div>
       <div class="admin-header-tools">
-        <a class="admin-link" href="/">工作台 →</a>
         <div class="user-avatar" id="user-avatar" tabindex="0" role="button" aria-haspopup="menu" aria-label="账户菜单">
           <span class="avatar-letter" id="avatar-letter" aria-hidden="true">管</span>
           <div class="avatar-menu" id="avatar-menu" role="menu">
@@ -72,6 +71,24 @@
             <span class="stat-label">占用空间</span>
             <strong class="stat-value" id="stat-bytes">0</strong>
             <span class="stat-unit">MB</span>
+          </div>
+        </div>
+
+        <h3 class="sub-head">生图趋势</h3>
+        <div class="trend-card">
+          <div class="trend-head">
+            <div class="trend-tabs" id="trend-tabs" role="tablist" aria-label="统计范围">
+              <button class="trend-tab" data-range="today" type="button">今天</button>
+              <button class="trend-tab active" data-range="7d" type="button">七天</button>
+              <button class="trend-tab" data-range="30d" type="button">一个月</button>
+              <button class="trend-tab" data-range="90d" type="button">三个月</button>
+              <button class="trend-tab" data-range="180d" type="button">六个月</button>
+            </div>
+            <span class="trend-total" id="trend-total"></span>
+          </div>
+          <div class="trend-chart-wrap">
+            <svg id="trend-chart" class="trend-chart" preserveAspectRatio="none" aria-label="生图趋势折线图"></svg>
+            <div class="trend-empty" id="trend-empty" hidden>该时间范围内还没有生成记录</div>
           </div>
         </div>
 

@@ -274,6 +274,9 @@
       opacity: 0.72;
     }
 
+/* 提示词悬浮工具与最大化编辑器样式见 /src/lib/prompt-tools.css（两页共用） */
+
+
     .hint {
       margin: 10px 0 0;
       color: var(--ink-soft);

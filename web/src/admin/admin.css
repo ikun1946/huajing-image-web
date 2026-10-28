@@ -556,3 +556,119 @@
     font-size: 25px;
   }
 }
+
+/* ===== 生图趋势折线图 ===== */
+
+.trend-card {
+  border: 1px solid rgba(43, 38, 34, 0.1);
+  border-radius: 12px;
+  background: #fffdf8;
+  padding: 14px 16px 12px;
+}
+
+.trend-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.trend-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.trend-tab {
+  border: 1px solid rgba(43, 38, 34, 0.16);
+  background: transparent;
+  color: rgba(43, 38, 34, 0.75);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.trend-tab:hover {
+  background: rgba(43, 38, 34, 0.06);
+}
+
+.trend-tab.active {
+  background: #425a46;
+  border-color: #425a46;
+  color: #fffdf8;
+}
+
+.trend-total {
+  margin-left: auto;
+  font-size: 12px;
+  color: rgba(43, 38, 34, 0.55);
+}
+
+.trend-chart-wrap {
+  position: relative;
+}
+
+.trend-chart {
+  display: block;
+  width: 100%;
+  height: 220px;
+}
+
+.trend-grid {
+  stroke: rgba(43, 38, 34, 0.08);
+  stroke-width: 1;
+}
+
+.trend-axis-label {
+  font-size: 10px;
+  fill: rgba(43, 38, 34, 0.5);
+}
+
+.trend-area {
+  fill: rgba(66, 90, 70, 0.12);
+  stroke: none;
+}
+
+.trend-line {
+  fill: none;
+  stroke: #425a46;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trend-dot circle {
+  fill: #425a46;
+}
+
+.trend-dot .trend-dot-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+.trend-dot:hover circle:first-child {
+  r: 5;
+}
+
+.trend-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: rgba(43, 38, 34, 0.45);
+}
+
+/* display 会压过 hidden 属性的默认隐藏，需显式声明 */
+.trend-empty[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .trend-total {
+    margin-left: 0;
+  }
+}

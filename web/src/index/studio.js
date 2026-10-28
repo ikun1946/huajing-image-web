@@ -1,6 +1,7 @@
 
 import { fetchServerConfig, generateImage, logout } from '../lib/api.js'
 import { getImageExtension } from '../lib/dom.js'
+import { setupHistoryPanel } from '../lib/history-panel.js'
 import { requireLogin } from '../lib/guard.js'
 
     // 未登录先跳转登录页
@@ -18,19 +19,24 @@ import { requireLogin } from '../lib/guard.js'
       })
       .catch(() => {})
 
+    setupHistoryPanel()
+
     document.querySelector('#logout-button')?.addEventListener('click', async () => {
       await logout().catch(() => {})
       window.location.replace('/login.html')
     })
 
-    // 点击头像也能开合菜单，触屏设备友好
+    // 点击头像也能开合菜单，触屏设备友好；打开菜单时不让面板误关
     document.querySelector('#user-avatar')?.addEventListener('click', event => {
       event.stopPropagation()
       document.querySelector('#user-avatar')?.classList.toggle('is-open')
     })
 
-    document.addEventListener('click', () => {
-      document.querySelector('#user-avatar')?.classList.remove('is-open')
+    document.addEventListener('click', event => {
+      const avatar = document.querySelector('#user-avatar')
+      if (!avatar) return
+      if (event.target.closest?.('#history-panel')) return
+      avatar.classList.remove('is-open')
     })
 
     const form = document.querySelector('#generate-form')
@@ -53,6 +59,8 @@ import { requireLogin } from '../lib/guard.js'
     const lightbox = document.querySelector('#lightbox')
     const lightboxImage = document.querySelector('#lightbox-image')
     const lightboxClose = document.querySelector('#lightbox-close')
+    const promptMaximize = document.querySelector('#prompt-maximize')
+    const promptCopy = document.querySelector('#prompt-copy')
 
     let progressTimer = 0
     let elapsedTimer = 0
@@ -82,6 +90,83 @@ import { requireLogin } from '../lib/guard.js'
     promptInput.addEventListener('input', () => {
       count.textContent = String(promptInput.value.length)
     })
+
+    // ===== 提示词框悬浮工具 =====
+
+    promptCopy?.addEventListener('click', async () => {
+      const text = promptInput.value
+      if (!text) {
+        status.textContent = '提示词还是空的'
+        return
+      }
+      try {
+        await navigator.clipboard.writeText(text)
+      } catch {
+        // 剪贴板 API 不可用时退回选区复制（HTTP 环境等）
+        promptInput.focus()
+        promptInput.select()
+        document.execCommand('copy')
+        promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length)
+      }
+      status.textContent = '提示词已复制到剪贴板'
+    })
+
+    promptMaximize?.addEventListener('click', () => {
+      openPromptEditor()
+    })
+
+    function openPromptEditor() {
+      let editor = document.querySelector('#prompt-editor')
+      if (!editor) {
+        editor = document.createElement('div')
+        editor.id = 'prompt-editor'
+        editor.className = 'prompt-editor'
+        editor.innerHTML = `
+          <div class="prompt-editor-card">
+            <div class="prompt-editor-head">
+              <span>编辑提示词</span>
+              <button class="prompt-editor-close" type="button" aria-label="关闭编辑器">✕</button>
+            </div>
+            <textarea class="prompt-editor-text" id="prompt-editor-text"></textarea>
+            <div class="prompt-editor-foot">
+              <span class="prompt-editor-count"><span id="prompt-editor-count">0</span> 字</span>
+              <button class="prompt-editor-done" id="prompt-editor-done" type="button">完成</button>
+            </div>
+          </div>
+        `
+        document.body.append(editor)
+
+        const editorText = editor.querySelector('#prompt-editor-text')
+        const editorCount = editor.querySelector('#prompt-editor-count')
+
+        editorText.addEventListener('input', () => {
+          editorCount.textContent = String(editorText.value.length)
+        })
+
+        const close = () => {
+          promptInput.value = editorText.value
+          count.textContent = String(promptInput.value.length)
+          editor.classList.remove('visible')
+          promptInput.focus()
+        }
+
+        editor.querySelector('.prompt-editor-close').addEventListener('click', close)
+        editor.querySelector('#prompt-editor-done').addEventListener('click', close)
+        editor.addEventListener('click', event => {
+          if (event.target === editor) close()
+        })
+        document.addEventListener('keydown', event => {
+          if (event.key === 'Escape' && editor.classList.contains('visible')) close()
+        })
+      }
+
+      const editorText = editor.querySelector('#prompt-editor-text')
+      editorText.value = promptInput.value
+      editor.querySelector('#prompt-editor-count').textContent = String(editorText.value.length)
+      editor.classList.add('visible')
+      editorText.focus()
+      editorText.setSelectionRange(editorText.value.length, editorText.value.length)
+    }
 
     form.addEventListener('change', event => {
       if (event.target.name === 'ratio') {

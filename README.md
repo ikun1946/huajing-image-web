@@ -16,79 +16,139 @@ huajing-image-web/
 │   │   │   ├── meta.ts        GET  /api/config、/api/health
 │   │   │   ├── auth.ts        登录、登入、当前用户、首次引导
 │   │   │   ├── admin.ts       账号管理、生成统计
-│   │   │   ├── projects.ts    项目增删改查
-│   │   │   └── styles.ts      风格库读写
+│   │   │   ├── projects.ts    项目增删改查（按账号隔离）
+│   │   │   ├── styles.ts      风格库读写（按账号隔离）
+│   │   │   └── history.ts     当前账号的生成记录
 │   │   ├── services/
 │   │   │   ├── magpie.js      调上游 Magpie 生图接口
 │   │   │   ├── imaging.ts     图片格式探测、像素尺寸读取
 │   │   │   ├── storage.ts     存储抽象（本地盘，日后可换对象存储）
 │   │   │   ├── user-store.ts  账号库
-│   │   │   ├── usage-store.ts 生图统计
-│   │   │   ├── project-store.ts 项目库
-│   │   │   └── style-library.ts 风格库
+│   │   │   ├── usage-store.ts 生图统计与生成记录（含提示词、耗时、图片路径）
+│   │   │   ├── project-store.ts 项目库（项目归属 ownerId）
+│   │   │   └── style-library.ts 风格库（每账号一份）
 │   │   └── lib/
 │   │       ├── errors.ts      统一错误码
 │   │       ├── serial-gate.ts 全局串行闸门
 │   │       ├── session.ts     会话表
+│   │       ├── filename.ts    文件名合法性校验
+│   │       ├── url.ts         图片 URL 构建（按请求 Host 推断）
 │   │       └── password.ts    scrypt 密码哈希
 │   ├── package.json
 │   └── .env.example
 ├── web/                       前端：只管渲染与交互
-│   ├── index.html             单张工作台
-│   ├── batch.html             资产批量工作台
-│   ├── login.html             登录页（无注册入口）
+│   ├── batch.html             客户端主页面（资产批量 + 自由创作）
+│   ├── login.html             登录页（登录 / 申请账号）
 │   ├── admin.html             后台管理页
 │   ├── src/
-│   │   ├── lib/               api.js / config.js / dom.js / guard.js
-│   │   ├── index/             单张工作台 CSS + JS
-│   │   ├── batch/             批量工作台 CSS + JS
-│   │   ├── login/             登录页 JS
+│   │   ├── lib/               api.js / config.js / dom.js / guard.js / history-panel.js / prompt-tools.css
+│   │   │   └── history-panel.css  生成记录面板样式（多页面共用）
+│   │   ├── batch/             批量工作台 + 自由创作 CSS + JS
+│   │   ├── login/             登录页 CSS + JS（自带令牌，不依赖后台页样式）
 │   │   └── admin/             管理页 CSS + JS
 │   ├── vite.config.ts
 │   └── package.json
 ├── scripts/dev.mjs            一条命令同时起前后端
-├── 启动后端.bat                一键启动（双击）
-├── 停止服务.bat                一键停止（双击）
+├── scripts/control-panel.mjs  服务控制台（启停 / 监控 / 账号审核 / 日志，127.0.0.1:8790）
 ├── users.json                 账号库
-├── projects.json              项目库（每个项目一份独立的资产数据）
-├── usage.json                 生图统计
-├── styles.json                风格库
-├── server.log                 后端运行日志
+├── projects.json              项目库（每个项目带 ownerId，按账号隔离）
+├── usage.json                 生图统计与生成记录
+├── styles/                    风格库目录（每个账号一份 <userId>.json）
+├── logs/                      后端运行日志（按天 YYYY-MM-DD.log）
+├── data/                      监控数据（traffic.json 流量、rate-limit.json 限流、quotas.json 额度）
 └── generated/                 生成的图片（按资产类型分文件夹）
     ├── 角色/                   角色资产图，文件名为资产名
     ├── 场景/                   场景资产图
     ├── 道具/                   道具资产图
     ├── 自由创作/                批量页的自由创作
-    └── 单张创作/                单张工作台
+    └── 单张创作/                历史遗留目录（单张页已并入自由创作）
 ```
 
 ## 启动
 
-### 一键启动（推荐）
-
-双击项目根目录的 **`启动后端.bat`**（或 `start-server.bat`），启动器会自动完成：
-
-1. **环境体检** — 检查 Node.js 版本，缺失时给出安装命令
-2. **依赖补齐** — 后端/前端依赖未安装时自动 `npm install`
-3. **构建** — 产物缺失或指定 `--rebuild` 时自动构建前后端
-4. **拉起 Magpie** — 上游未运行时自动从 `MAGPIE_EXE` 或 `~/Downloads` 启动
-5. **端口检查** — 端口被占用时给出提示而不是抛错
-6. **打开浏览器** — 服务就绪后自动打开单张工作台
-
-启动器窗口会在服务就绪后自动关闭，**服务在后台继续运行**。
-运行日志写入 `server.log`，出问题先看它。要停止服务，双击 **`停止服务.bat`**。
-
-> `.bat` 里的脚本路径用正斜杠并加引号（`node "scripts/launch-server.mjs"`），
-> 否则 cmd 会吞掉反斜杠导致找不到模块。
-
-也可以在命令行使用：
+### 服务控制台（推荐）
 
 ```powershell
-npm run start:server              # 正常启动
-npm run start:server:rebuild      # 强制重新构建前后端
-npm run start:server:dev         # 开发模式，热重载
-node scripts/launch-server.mjs --no-open     # 不自动打开浏览器
-node scripts/launch-server.mjs --no-magpie   # 不自动拉起 Magpie
+npm run panel
+```
+
+打开 **http://127.0.0.1:8790/** 即可看到服务控制台（仅本机可访问），提供：
+
+- **控制台登录（必需）**：打开控制台先登录管理员账号，未登录时除登录框外
+  全部功能（服务控制、日志、账号、统计、趋势、流量、限流）都不显示也不可用；
+  登录凭证由主服务校验，会话记在控制台进程内。登录页是双列布局：左侧品牌说明 +
+  实时服务状态/客户端地址，右侧表单（密码可显隐、错误内联提示、提交中禁用防重复）
+- **唯一例外**：主服务未运行时，页面会给出「启动服务」引导按钮，
+  否则没有可校验的账号体系、会把自己锁死；服务一旦运行即要求登录
+- **启动 / 停止 / 重启服务** 按钮（主服务 = 客户端后端，端口 8787）
+- **运行时间** 与进程状态
+- **账号管理**：新建账号、改显示名/密码、停用/启用、删除（原后台管理页内容）；
+  **每账号可单独设置每日生图额度**（0 = 不限额），超额请求直接返回 429 且不调用上游
+- **待审核申请**：客户端登录页提交的申请在这里排队，带用户名、显示名、申请时间，
+  点「通过」账号立刻可登录、点「拒绝」删掉这条记录。队列只在有申请时出现，
+  每 10 秒刷新一次（页面切到后台就暂停），刷新只在新申请到达时重绘表格，
+  不会把正要点的按钮换掉
+- **生图统计**：累计生成、参与账号、占用空间、**累计 token**、**平均每张 token**；
+  下方三张表依次是「账号 token 排行」（带 `#` 名次列，按累计 token 降序，
+  列出张数 / 累计 token / 均值每张 / 占比 / 占用空间 / 最近生成）、
+  「按画幅的 token 均值」（画幅 / 张数 / 累计 token / 均值每张 / 占比）、
+  「最近 50 条生成明细」（每条也列出该次生图的 token）。
+  均值只统计有 token 数据的记录，旧记录（没有 token 字段）计入张数但不拉低均值，
+  接口同时返回 `avgTokens`、`ratioStats[]`，账号项带 `tokenCount` 与 `avgTokens`
+- **账号管理**：账号表新增「token 消耗」列（与生图数同源，统计就绪后自动刷新）
+- **生图趋势**：分段胶囊切换 今天（按小时）/ 七天 / 一个月 / 三个月 / 六个月，
+  右侧图标可切折线与柱状；曲线用单调三次插值（限幅防过冲），配渐变面积、
+  虚线网格与整齐刻度（步长取 1/2/5×10ⁿ），数据点悬停才浮出；
+  暗色模式下网格与分段底色自动转浅色
+- **趋势悬停浮层**：鼠标停在某个时间点的整列上，弹出该时间段的「总张数 · 总 token」
+  以及**按账号拆分**的明细（每个账号多少张、消耗多少 token）；接口
+  `GET /api/admin/stats/trend` 的每个 bucket 现在带 `tokens` 与 `users[]`
+  （`tokensInput + tokensOutput`，旧记录无 token 字段按 0 计）
+- **流量监控**：总请求、发出/接收流量、按客户端 IP 的明细（数据落在 `data/traffic.json`，重启不丢）
+- **客户端限流**：开关 + 滑动窗口配置（如 60 秒内最多 60 个请求），超额返回 429；
+  配置保存在 `data/rate-limit.json`，服务重启后仍生效
+- **运行日志**：按天写入 `logs/YYYY-MM-DD.log`，控制台里可直接翻看
+
+#### 控制台视觉规范
+
+控制台是 `Operate` 类界面（任务优先），视觉按「精确与克制」处理，令牌集中在
+`scripts/control-panel.mjs` 的 `:root` 里：
+
+- **层次**：卡片只声明一层边界（1px 发丝线），不再叠加投影；内部层次靠 1%~3% 明度差
+  （`--surface` / `--surface-sunken` / `--hair`）区分，不使用纯黑
+- **指标**：标签 + 数值组成的一行 `.metrics`，用细线分隔，不再套独立卡片
+- **图标**：统一为内联 SVG（同一线宽），不使用 emoji 或 Unicode 字符充当图标
+- **浏览器表面**：选区、光标、滚动条、占位符、焦点环都从调色板取色
+- **对比度**：正文 13.8:1，次要文字亮色 5.56:1 / 暗色 5.08:1（均 ≥ 4.5）
+- **暗色**：`prefers-color-scheme: dark` 下整体字重调细一档（正文 300）抵消光晕
+- **布局**：宽屏（≥1200px）时「运行日志」位于「服务控制」右侧（栏宽 290–330px）、
+  两块等高对齐，账号管理及其后板块通栏；日志在窄栏内软换行，不出现横向滚动条
+- **日志交互**：鼠标在日志窗口上时滚轮只滚动日志内容（`overscroll-behavior: contain`
+  + wheel 拦截），不会带动整页；「跳至最新」是日志窗口底部居中的半透明玻璃浮层，
+  仅在内容未处于最新一条时浮现，点击后回落到底并自动隐藏
+  （按下态单独声明 `transform: translate(-50%, 1px)`，否则会被全局 `button:active`
+  的 `translateY` 覆盖、导致按钮左右跳动）
+- **跳转按钮**：细描边幽灵（唯一风格）——只留一圈描边，按钮范围内是
+  `backdrop-filter: blur(14px)` 的雾面玻璃，**被它盖住的日志文字会明显模糊**，
+  叠加冷白径向薄雾与内外微光（`0 0 18px` 外发光 + `inset 0 0 16px` 内微光、
+  文字 `text-shadow: 0 0 10px`）形成「文字被雾气压住并透出弱光」的观感；
+  仅在内容未处于最新一条时出现，点击回落到底后自动隐藏
+- **日志自动刷新**：每 3 秒一次，但只在页面可见、且查看的是「今天」时轮询；
+  先请求 `/api/logs?meta=1`（只取文件大小与 mtime）判断是否有新内容，变了才拉正文，
+  正文没变则不重绘；贴底时跟随最新，上滚时保持阅读位置并显示「跳至最新」；
+  工具栏有开关，关闭后完全停止轮询（偏好记在 localStorage）
+- **滚动条**：日志窗口的滚动条平时隐藏，鼠标移入日志区才浮现为浅色滑块
+- **响应式**：1440 / 390 两档无横向溢出；宽表格在自身容器内横向滚动
+- **运行时间**：前端本地 250ms 平滑走时，3 秒一次的轮询只做校准（偏差 >1.5 秒才对齐），
+  数据源优先取主服务进程的真实 uptime，因此控制台重启后不会从 0 重算
+
+旧的 `启动后端.bat` / `停止服务.bat` 已移除。手动方式：
+
+```powershell
+npm run build          # 构建前端
+npm run build:server   # 编译后端
+npm start              # 直接启动主服务（不经过控制台）
+npm run dev            # 开发模式，热重载
 ```
 
 启动器会读取 `server/.env`（若存在），其中的 `PORT`、`MAGPIE_BASE_URL`、`MAGPIE_EXE` 等配置优先于默认值。
@@ -118,29 +178,48 @@ POST /api/images
   成功  { id, imageUrl, model, mimeType, bytes, width, height, ratio }
   失败  { error, code }
 
-GET  /api/config      画面比例、原生尺寸、提示词上限、默认值
+GET    /api/config      画面比例、原生尺寸、提示词上限、默认值
 GET  /api/health      后端与上游 Magpie 的连通状态
 GET  /api/queue       串行闸门状态：{ busy, waiting }
 GET  /api/files/*     生成图片（支持 类别/文件名 与旧版 UUID 两种形式）
+GET  /api/history     当前账号的生成记录（提示词、耗时、画幅、像素、图片地址、token 用量）
 
-GET    /api/projects            项目列表 { projects, activeProjectId }
-GET    /api/projects/:id        项目详情
-POST   /api/projects            新建项目 { name?, fileName? }
+GET    /api/projects            项目列表（仅当前账号自己的）{ projects, activeProjectId }
+GET    /api/projects/:id        项目详情（仅限本人项目）
+POST   /api/projects            新建项目 { name?, fileName? }（归属当前账号）
 PATCH  /api/projects/:id        更新项目 { name?, assets?, styles?, defaultStyle?, bulkParams? }
 DELETE /api/projects/:id        删除项目
 POST   /api/projects/:id/activate  设为当前项目
 
+GET /api/styles   当前账号的风格库
+PUT /api/styles   保存当前账号的风格库
+
 POST /api/auth/login   登录 { username, password } → { user }
 POST /api/auth/logout  登出
 GET  /api/auth/me      当前登录用户
-GET  /api/auth/status  账号库是否为空（登录页用）
+GET  /api/auth/status  账号库状态（登录页用）{ needsSetup, setupEnabled, registrationOpen }
 POST /api/auth/setup   引导创建首个管理员（需管理密钥，且账号库为空）
+POST /api/auth/register 自助申请账号 { username, displayName?, password }
+                        只落一条待审核记录，账号还不能登录；
+                        返回 { status: 'pending', username }，
+                        待审核申请超过 30 条后返回 429（防止灌队列）
 
 GET    /api/admin/users   账号列表            管理员
 POST   /api/admin/users   新建账号            管理员
 PATCH  /api/admin/users/:id  改显示名/密码/启停  管理员
 DELETE /api/admin/users/:id  删除账号          管理员
 GET    /api/admin/stats   生图统计            管理员
+                          （accounts 按累计 token 降序，带 tokenCount/avgTokens；
+                          另返回 avgTokens 与 ratioStats[]：画幅→张数/累计 token/均值）
+GET    /api/admin/registrations          待审核的自助申请列表  管理员
+POST   /api/admin/registrations/:id/approve  通过申请（账号立即可登录）  管理员
+POST   /api/admin/registrations/:id/reject   拒绝申请（删除该记录）      管理员
+GET    /api/admin/quotas  每账号每日额度与今日用量  管理员
+PUT    /api/admin/users/:id/quota  设置每日额度 { dailyLimit }（0=不限额） 管理员
+GET    /api/quota        当前账号的今日额度状态（登录即可）
+GET    /api/admin/stats/trend?range=today|7d|30d|90d|180d
+                          生图趋势折线图数据  管理员
+                          （today 按小时分桶，其余按天分桶，取自本地 usage.json）
 ```
 
 错误码：`INVALID_PROMPT`、`PROMPT_TOO_LONG`、`RATIO_INVALID`、`AUTH_REQUIRED`、`AUTH_INVALID`、`AUTH_FORBIDDEN`、`UPSTREAM_UNREACHABLE`、`UPSTREAM_TIMEOUT`、`UPSTREAM_ERROR`、`UPSTREAM_BAD_RESPONSE`、`IMAGE_INVALID`、`IMAGE_UNSUPPORTED`、`INTERNAL_ERROR`。
@@ -241,12 +320,32 @@ ADMIN_SETUP_KEY=换成你自己的长随机串
 | 管理员 | 生图 + 访问后台管理页（建账号、看统计、停用/删除账号） |
 | 普通用户 | 只能生图 |
 
-- 客户端**没有注册接口**，`POST /api/auth/register` 返回 404。账号一律由管理员在后台创建。
+- 客户端可以**自助申请**账号，但注册不由申请人自己完成：
+  `POST /api/auth/register` 只写入一条 `pending` 记录，登录接口对这类账号一律返回
+  403 `AUTH_PENDING`（密码正确才告知「等待审核」，密码错误仍按「用户名或密码不正确」处理，
+  不泄露账号状态）。管理员在服务端控制台「待审核申请」里点「通过」之后，
+  `pending` 置为 false，账号才算真正注册成功、才能登录；点「拒绝」会删除这条记录。
+- 审核期间账号不出现在账号列表、额度表和统计里（它们只认已通过审核的账号）。
 - 密码用 `scrypt` 加随机盐哈希存储，文件里没有明文。
 - 会话用 HttpOnly Cookie，有效期 7 天；`SESSION_SECRET` 留空则每次启动重新生成（重启需重登）。
 - 停用账号后该账号立即无法登录。
 
 页面与接口双重把关：未登录访问工作台会跳转到登录页，未登录调用生图接口直接拒绝。
+
+### 数据按账号隔离
+
+- **项目**：每个项目记录归属账号（`ownerId`），项目列表、详情、修改、删除、激活
+  全部只针对本人项目，访问他人项目一律返回 404，不泄露存在性。
+- **风格库**：每个账号一份独立文件 `styles/<userId>.json`，互不可见。
+- **生成记录**：`/api/history` 只返回当前账号自己的生图记录，含提示词全文、
+  生成耗时、画幅、像素尺寸、文件大小与图片地址。
+
+### 局域网访问
+
+- 后端默认监听 `0.0.0.0:8787`，CORS 放行本机回环与私有网段（192.168 / 10 / 172.16-31）来源。
+- 开发模式 Vite 监听 `0.0.0.0:5173`，前端 API 走同源相对路径，由 Vite 把 `/api`
+  代理给本机后端；局域网设备直接访问 `http://<主机IP>:5173` 即可。
+- 生产构建由后端直接托管前端产物，天然同源，局域网设备访问 `http://<主机IP>:8787`。
 
 ### 生图统计
 
@@ -256,8 +355,20 @@ ADMIN_SETUP_KEY=换成你自己的长随机串
 后台能看到的：
 
 - 累计生成张数、占用空间、参与账号数
+- **生图趋势折线图**：今天（按小时）/ 七天 / 一个月 / 三个月 / 六个月（按天），
+  纯前端 SVG 绘制，零依赖；数据取自本地 `usage.json`，悬停数据点可看具体数值
 - **按账号细分**：每个账号生成了多少张、占了多少空间、最近生成时间、占比条
 - 最近 50 条生成明细：时间、账号、资产类型、名称、画幅、像素尺寸、文件大小
+
+### token 用量
+
+每次生图都会记录 token 消耗，展示在生成记录里（大图下方也有一份）：
+
+- **上游返回真实值**时记 `tokensSource: upstream`（OpenAI 系图像接口的
+  `usage.input_tokens / output_tokens / total_tokens`，网关透传即可拿到）
+- **上游不返回**时降级为本地估算并标注「估算」——中日韩字符按 1 字 1 token、
+  其余按 4 字符 1 token 粗算，只用于判断提示词长度，**不能当计费依据**
+- 图像生成的「输出 token」在上游不提供时为 null，只有提示词（输入）可计
 
 ### 本地数据文件
 
@@ -265,8 +376,8 @@ ADMIN_SETUP_KEY=换成你自己的长随机串
 
 ```text
 users.json    账号库（用户名、密码哈希、角色、启停状态）
-usage.json    生图统计
-styles.json   风格库
+usage.json    生图统计与生成记录（含提示词、耗时、图片相对路径）
+styles/       风格库目录（每个账号一份 <userId>.json）
 generated/    图片文件
 ```
 
@@ -291,6 +402,72 @@ generated/    图片文件
   风格属于**当前项目**，不同项目可以各用各的。
 - 生成时以风格描述为最高优先级，拼接在资产内容之前。
 - 每项资产独立保存提示词、比例、风格、状态与结果；导入数据存在浏览器 `localStorage`。
+- **自由创作的提示词草稿、画面比例、上次生成结果都会随刷新保留**（存在同一份本地数据里），
+  用最大化编辑器修改后同样会立即写入，不会因为刷新丢字。
+
+#### 本地缓存按账号隔离
+
+同一台电脑、同一个浏览器上换账号，**不能再看到上一个人的工作区**。做法与约定：
+
+- 快照键带账号 id：`moying.assetStudio.v2.<userId>`（资产、风格、批量参数、
+  自由创作草稿 / 比例 / 上次生成图、当前页签都在里面，并额外记一份 `ownerId`）；
+  未完成任务的键同理：`moying.pendingJob.v2.<userId>`（值里也带 `userId`，双重校验）。
+- **启动顺序是「先认人、再渲染」**：页面先等 `/api/auth/me` 拿到当前账号，再读该账号的
+  快照并渲染。以前是同步读全局快照再渲染、身份后到，所以换账号会先把上一账号的
+  草稿和图片画上屏，而且之后不再覆盖 —— 这就是「换账号还是上一个账号页面」的根因。
+  身份校验失败（非 401/403）时页面保持空态并提示刷新，不会把旧内容当正常状态显示。
+- **旧键 `moying.assetStudio.v1` 只在能证明归属时迁移**，两条证据任一成立即认领：
+  1）快照里的 `activeProjectId` 属于当前账号（`GET /api/projects/:id` 查他人项目返回 404）；
+  2）快照里上次生成的图片出现在当前账号的生成记录里（按路径比对，换 IP 访问也能对上）。
+  两条都不成立就**原样保留、绝不猜测**。旧版 `moying.pendingJob.v1` 同理：
+  用任务查询接口证明归属后才接回，否则不接。
+- **退出登录保留工作区、清未完成任务**：快照按账号各自留存，下次登录还在；
+  只删除当前账号的 `pendingJob`（停掉「后台仍在生成」的假状态）。
+- 风格播种（服务端没有风格时用本地风格做初始值）现在只会写当前账号自己的，
+  不会再出现「B 继承 A 的风格」。
+
+#### 客户端登录页视觉规范
+
+登录页（`web/login.html` + `web/src/login/login.css`）自带一套令牌，不再借用后台页样式表：
+
+- **同一套暖纸色系**：`--paper #f4f0e6` / 墨绿 `--moss #425a46`，与工作台一致；
+  暗色 `prefers-color-scheme: dark` 下换成深纸底，主按钮反白（`--on-moss` 深墨色文字）
+- **版式**：420px 单列卡片，品牌标（衬线「境」+ 墨绿圆角块）→ 标题 → 一句说明 →
+  分段胶囊切换「登录 / 申请账号」。去掉了原来标题上方的全大写英文小标签
+- **表单**：40px 输入框 + 标签在上；焦点是双环（边框转墨绿 + 3px 淡光环）而不是浏览器
+  outline；密码框带「显示/隐藏」按钮（内联 SVG，不用 emoji）
+- **提示位**：没有错误时显示一句引导语（如「忘记密码可以联系管理员重置」），
+  出错时原地变红，不新增元素、不推移按钮（实测按钮位移 0.0px）
+- **申请账号**：用户名 / 显示名（可选）/ 密码 / 确认密码，前端先按服务端同一套规则校验，
+  提交成功后换成「申请已提交」态并回填用户名，点「返回登录」直接进入登录态
+- **对比度**：说明文字 5.55:1、字段提示与页脚 4.6:1（暗色 7.14 / 5.08），均 ≥ 4.5
+- **移动端**：390px 下卡片 358px 贴顶排布，无横向溢出；`prefers-reduced-motion` 下关闭入场动画
+
+#### 客户端视觉规范
+
+与服务器控制台共用一套思路（任务优先、精确克制），令牌集中在 `web/src/batch/batch.css` 的 `:root`：
+
+- **圆角档位**：外壳 24 = 面板 16 + 缝隙 8；面板 16 = 构件 12 + 缝隙 4，统一用 `--radius-shell/panel/inner/field`
+- **层次**：外壳只保留一层边界（细边 + 极淡投影），内部不再叠卡片阴影；说明卡里的数量统计改成一条指标带（细线分隔，不再嵌套小卡片）
+- **对比度**：次要文字 `--ink-faint` 从 2.8:1 提到 **4.6–5.6:1**
+- **浏览器表面**：选区、光标、滚动条、`:focus-visible` 焦点环都从调色板取色；数字统一 `tabular-nums`
+- **标题区**：去掉标题上方的全大写英文小标签，改为标题 + 一句功能说明
+- **提示词悬浮按钮**：只在鼠标进入输入框右上角热区（右 150px × 上 56px）时浮现，
+  不再一进输入框就出现；键盘 Tab 聚焦按钮时同样显示
+- **滚轮不外溢**：生成记录面板与日志窗口的滚动区都设了 `overscroll-behavior: contain`，
+  再用「原生优先」的滚轮守卫兜底：方向与速度全部交给浏览器原生滚动，
+  只在**已经到顶/到底还继续往外滚**时 `preventDefault`，所以不会带动后面的页面，
+  也不会和系统里的反向滚动设置打架（早前版本手动 `scrollTop += delta`，
+  方向取决于自己算的增量，增量单位和浏览器对不上时就会「滚轮往下、内容往上」）；
+  指针落在面板标题或搜索框上时把滚动转交给列表；列表本身不可滚时照常滚页面
+- **移动端**：顶栏品牌独占一行、操作按钮换行、标题不折行；导航标签可横向滚动（不再裁掉最后一个）；
+  预览区只有真的生成图片后才显示下载/最大化按钮（原来窄屏下无条件显示）
+- **暗色主题**：`prefers-color-scheme: dark` 下整体换成深色令牌（纸底 `#171a17`、面板 `#1f2320`），
+  逐条接管原本写死浅色的表面（卡片、表单、表格、弹层、进度条、玻璃按钮）；
+  正文对比度 12.3:1、次要文字 7.1:1，字重整体调细一档抵消黑底白字的光晕
+- **生成中刷新不会丢结果**：提交时前端生成一个任务 ID 并存本地，服务端按该 ID 记录任务状态
+  （`GET /api/images/jobs/:id`，仅本人可查）。刷新后页面自动接回进度条并轮询，
+  生成完成即显示图片；任务过期或服务重启过则提示重新生成。
 - 工具栏的**批量比例与批量风格**按资产类型分别记住，刷新页面后保持上次选择。
   标题下的说明会显示当前批量比例；点「应用到所选」会同时套用比例与风格。
 - **风格库存放在后端** `styles.json`（可用 `STYLE_LIBRARY_PATH` 改路径），
@@ -306,20 +483,20 @@ generated/    图片文件
 见 `server/.env.example`。常用项：
 
 ```text
-HOST / PORT                后端监听地址与端口
+HOST / PORT                后端监听地址与端口（局域网访问设 HOST=0.0.0.0）
 PUBLIC_BASE_URL            对外地址；留空按请求 Host 推断
 MAGPIE_BASE_URL            上游 Magpie 网关，默认 http://127.0.0.1:3425
 MAGPIE_IMAGE_MODEL         生图模型，默认 codex/gpt-image-2
 IMAGE_TIMEOUT_MS           单次生成超时，默认 300000
 MAX_PROMPT_LENGTH          提示词上限，默认 12000
 STORAGE_DIR                图片存储目录，默认项目根 generated/
-STYLE_LIBRARY_PATH        风格库文件，默认项目根 styles.json
+STYLE_LIBRARY_PATH        风格库目录（每账号一份 <userId>.json），默认项目根 styles/
 USER_DATABASE_PATH        账号库文件，默认项目根 users.json
 USAGE_DATABASE_PATH       生图统计文件，默认项目根 usage.json
 PROJECT_DATABASE_PATH     项目库文件，默认项目根 projects.json
 SESSION_SECRET            会话签名密钥，留空则每次启动随机生成
 ADMIN_SETUP_KEY           引导创建首个管理员的管理密钥，留空则禁用引导
-CORS_ORIGINS               允许的前端来源，逗号分隔
+CORS_ORIGINS              允许的前端来源（已改为自动放行回环与私有网段，此项保留兼容）
 ```
 
 ## 依赖
