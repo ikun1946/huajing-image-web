@@ -221,8 +221,13 @@
   backdrop-filter: blur(8px);
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-6px);
-  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.96);
+  transform-origin: top right;
+  transition:
+    opacity 140ms ease-in,
+    transform 140ms cubic-bezier(0.4, 0, 1, 1),
+    visibility 0s linear 140ms;
 }
 
 .admin-body .user-avatar:hover .avatar-menu,
@@ -230,7 +235,23 @@
 .admin-body .user-avatar.is-open .avatar-menu {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity 180ms ease-out,
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s linear 0s;
+}
+
+.admin-body .user-avatar.is-dismissed .avatar-menu {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.96);
+  transition:
+    opacity 140ms ease-in,
+    transform 140ms cubic-bezier(0.4, 0, 1, 1),
+    visibility 0s linear 140ms;
 }
 
 .admin-body .avatar-name {

@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify'
 import { config } from '../config.js'
 import { checkHealth } from '../services/magpie.js'
 
-export function registerMetaRoutes(app: FastifyInstance): void {
+export function registerMetaRoutes(
+  app: FastifyInstance,
+  deps: { concurrency?: () => number } = {},
+): void {
   app.get('/api/config', async () => ({
     ratios: config.ratios.map(({ id, label, shortLabel, width, height, nativeWidth, nativeHeight, promptHint }) => ({
       id,
@@ -15,6 +18,8 @@ export function registerMetaRoutes(app: FastifyInstance): void {
       promptHint,
     })),
     maxPromptLength: config.maxPromptLength,
+    /** 当前允许的最大并行生图数（可在服务端控制台调整）；前端并行数不会超过它 */
+    imageConcurrency: deps.concurrency ? deps.concurrency() : config.imageConcurrency,
     defaults: {
       ratio: config.defaultRatio,
       byAssetType: {

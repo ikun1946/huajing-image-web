@@ -24,22 +24,72 @@ export interface MagpieImageResult {
   tokens: TokenUsage
 }
 
+export interface ReferenceImage {
+  buffer: Buffer
+  mimeType: string
+  filename?: string
+}
+
 export async function requestImage(
   options: MagpieOptions,
   params: { prompt: string; ratioHint: string },
 ): Promise<MagpieImageResult> {
-  let upstream: Response
-
-  try {
-    upstream = await fetch(`${options.baseUrl}/v1/images/generations`, {
+  const prompt = `${params.prompt}\n\n${params.ratioHint}`
+  return callImageEndpoint(
+    options,
+    `${options.baseUrl}/v1/images/generations`,
+    {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: options.model,
         // 不传 size：实测传 size 会让构图走样，文字描述比例反而更准
-        prompt: `${params.prompt}\n\n${params.ratioHint}`,
+        prompt,
         n: 1,
       }),
+    },
+    prompt,
+  )
+}
+
+/**
+ * 图生图（面部参考）：把参考图作为 image 字段传给 /v1/images/edits。
+ * 和纯文本生成共用响应解析、超时与错误翻译。
+ */
+export async function requestImageEdit(
+  options: MagpieOptions,
+  params: { prompt: string; ratioHint: string; image: ReferenceImage },
+): Promise<MagpieImageResult> {
+  const prompt = `${params.prompt}\n\n${params.ratioHint}`
+  const form = new FormData()
+  form.append('model', options.model)
+  form.append('prompt', prompt)
+  form.append('n', '1')
+  form.append(
+    'image',
+    new Blob([new Uint8Array(params.image.buffer)], { type: params.image.mimeType }),
+    params.image.filename || 'reference.png',
+  )
+
+  return callImageEndpoint(
+    options,
+    `${options.baseUrl}/v1/images/edits`,
+    { method: 'POST', body: form },
+    prompt,
+  )
+}
+
+async function callImageEndpoint(
+  options: MagpieOptions,
+  url: string,
+  init: RequestInit,
+  promptText: string,
+): Promise<MagpieImageResult> {
+  let upstream: Response
+
+  try {
+    upstream = await fetch(url, {
+      ...init,
       signal: AbortSignal.timeout(options.timeoutMs),
     })
   } catch (error) {
@@ -77,9 +127,7 @@ export async function requestImage(
   return {
     buffer,
     model: extractModel(payload) || options.model,
-    tokens: extractTokenUsage(payload) ?? estimateTokens(`${params.prompt}
-
-${params.ratioHint}`),
+    tokens: extractTokenUsage(payload) ?? estimateTokens(promptText),
   }
 }
 

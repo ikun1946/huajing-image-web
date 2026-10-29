@@ -176,6 +176,33 @@ export function registerAuthRoutes(
     }
     return { user: auth }
   })
+
+  /**
+   * 自助修改显示名：登录用的用户名不动，只改对外显示的名称。
+   * 名称在账号库里唯一（不区分大小写，待审核的申请也占名），重复会返回 409。
+   */
+  app.patch('/api/auth/me', async request => {
+    const auth = requireAuth(request)
+    const body = (request.body ?? {}) as { displayName?: unknown }
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : ''
+
+    if (!displayName) throw new ApiError('AUTH_INVALID', '显示名不能为空', 400)
+    if (displayName.length > DISPLAY_NAME_MAX) {
+      throw new ApiError('AUTH_INVALID', `显示名不能超过 ${DISPLAY_NAME_MAX} 个字符`, 400)
+    }
+
+    let user
+    try {
+      user = await deps.users.setDisplayName(auth.userId, displayName)
+    } catch (error) {
+      // 重名等业务错误：409，前端直接展示 message
+      throw new ApiError('AUTH_INVALID', (error as Error).message, 409)
+    }
+    if (!user) throw new ApiError('AUTH_INVALID', '账号不存在', 404)
+
+    request.log.info({ userId: user.id, displayName: user.displayName }, '账号修改了显示名')
+    return { user: toPublicUser(user) }
+  })
 }
 
 function readSessionToken(request: FastifyRequest): string | undefined {

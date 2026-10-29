@@ -353,3 +353,34 @@
   color: rgba(255, 253, 248, 0.55);
   font-variant-numeric: tabular-nums;
 }
+
+.history-meta,
+.history-badge,
+.history-facts,
+.history-lightbox-tokens {
+  color: rgba(255, 253, 248, 0.68);
+}
+
+.history-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+}
+
+.history-search {
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.history-mini,
+.history-prompt-copy {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.history-loading,
+.history-empty {
+  color: rgba(255, 253, 248, 0.68);
+}

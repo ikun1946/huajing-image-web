@@ -11,8 +11,10 @@ import {
   fetchStyleLibrary,
   generateImage,
   logout,
+  updateMyProfile,
   saveStyleLibrary,
   updateProject,
+  uploadReferenceImage,
 } from '../lib/api.js'
 import {
   escapeAttr,
@@ -24,10 +26,17 @@ import {
   sleep,
   timestamp,
 } from '../lib/dom.js'
+import { groupAssets, groupedAssetInfo } from '../lib/asset-groups.js'
+import { API_BASE } from '../lib/config.js'
 import { setupHistoryPanel } from '../lib/history-panel.js'
+import { buildStyleExport, parseStyleFile, planStyleImport } from '../lib/style-transfer.js'
 import { requireLogin } from '../lib/guard.js'
+import { setupAvatarMenu } from '../lib/avatar-menu.js'
 
     setupHistoryPanel()
+    const avatarMenu = setupAvatarMenu({
+      shouldIgnoreOutsideClick: event => event.target.closest?.('#history-panel'),
+    })
 
     document.querySelector('#logout-button')?.addEventListener('click', async () => {
       await logout().catch(() => {})
@@ -38,17 +47,82 @@ import { requireLogin } from '../lib/guard.js'
       window.location.replace('/login.html')
     })
 
-    // 点击头像也能开合菜单，触屏设备友好；点在记录面板内不收起菜单
-    document.querySelector('#user-avatar')?.addEventListener('click', event => {
+    /* ===== 修改显示名（登录用户名不变） ===== */
+    const renameModal = document.querySelector('#rename-modal')
+    const renameInput = document.querySelector('#rename-input')
+    const renameMsg = document.querySelector('#rename-msg')
+    const renameSave = document.querySelector('#rename-save')
+
+    function openRenameDialog() {
+      if (!renameModal) return
+      renameInput.value = (document.querySelector('#header-user')?.textContent || '').trim()
+      renameMsg.textContent = ''
+      renameInput.classList.remove('invalid')
+      renameInput.removeAttribute('aria-invalid')
+      renameModal.classList.add('visible')
+      renameInput.focus()
+      renameInput.select()
+    }
+
+    function closeRenameDialog() {
+      renameModal?.classList.remove('visible')
+    }
+
+    document.querySelector('#rename-button')?.addEventListener('click', event => {
       event.stopPropagation()
-      document.querySelector('#user-avatar')?.classList.toggle('is-open')
+      avatarMenu.close()
+      openRenameDialog()
     })
 
-    document.addEventListener('click', event => {
-      const avatar = document.querySelector('#user-avatar')
-      if (!avatar) return
-      if (event.target.closest?.('#history-panel')) return
-      avatar.classList.remove('is-open')
+    renameInput?.addEventListener('input', () => {
+      renameInput.classList.remove('invalid')
+      renameInput.removeAttribute('aria-invalid')
+      renameMsg.textContent = ''
+    })
+
+    document.querySelector('#rename-cancel')?.addEventListener('click', closeRenameDialog)
+    document.querySelector('#rename-close')?.addEventListener('click', closeRenameDialog)
+    renameModal?.addEventListener('click', event => {
+      if (event.target === renameModal) closeRenameDialog()
+    })
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && renameModal?.classList.contains('visible')) closeRenameDialog()
+    })
+
+    document.querySelector('#rename-form')?.addEventListener('submit', async event => {
+      event.preventDefault()
+      const next = renameInput.value.trim()
+      const current = (document.querySelector('#header-user')?.textContent || '').trim()
+
+      if (!next) {
+        renameMsg.textContent = '名称不能为空'
+        renameInput.classList.add('invalid')
+        renameInput.setAttribute('aria-invalid', 'true')
+        renameInput.focus()
+        return
+      }
+      if (next === current) {
+        closeRenameDialog()
+        return
+      }
+
+      renameSave.disabled = true
+      renameSave.textContent = '保存中…'
+      try {
+        const result = await updateMyProfile({ displayName: next })
+        if (result?.user) applyUserChrome(result.user)
+        closeRenameDialog()
+        showToast('名称已更新')
+      } catch (error) {
+        // 重名等错误由服务端给出具体文案
+        renameMsg.textContent = error.message || '修改失败，请重试'
+        renameInput.classList.add('invalid')
+        renameInput.setAttribute('aria-invalid', 'true')
+        renameInput.focus()
+      } finally {
+        renameSave.disabled = false
+        renameSave.textContent = '保存'
+      }
     })
 
     const TYPE_META = {
@@ -93,6 +167,10 @@ import { requireLogin } from '../lib/guard.js'
       done: '已完成',
       error: '失败',
     }
+    /* 每条资产保留的历史生成图数量（含主图）；历史回填的账号记录也截到这个数 */
+    const HISTORY_LIMIT = 20
+    let historyEntriesCache = null
+    let historyEntriesPromise = null
     const NON_VISUAL_FIELDS = new Set(['声线类型'])
     const STYLE_DEFAULTS = {
       role: {
@@ -126,7 +204,16 @@ import { requireLogin } from '../lib/guard.js'
       search: { role: '', scene: '', prop: '' },
       page: { role: 1, scene: 1, prop: 1 },
       pageSize: 20,
+      // 角色分组里被收起的角色名，默认全部展开
+      collapsedGroups: new Set(),
+      // 参考图上传：目标角色名与上传中的角色名（防止重复触发）
+      refTarget: '',
+      refUploading: '',
       queue: [],
+      // 并行生成数：默认 5（实测上游约 5 个并发槽），可在批量工具栏调整；服务端另有上限
+      concurrency: 5,
+      // 用户是否手动改过并行数：改过才在刷新后沿用，否则跟随默认值
+      concurrencyCustom: false,
       processing: false,
       stopRequested: false,
       queueTotal: 0,
@@ -169,6 +256,8 @@ import { requireLogin } from '../lib/guard.js'
 
     const dom = {
       fileInput: document.querySelector('#file-input'),
+      refFile: document.querySelector('#ref-file'),
+      styleImport: document.querySelector('#style-import'),
       headerImport: document.querySelector('#header-import'),
       headerProjects: document.querySelector('#header-projects'),
       projectsBackdrop: document.querySelector('#projects-backdrop'),
@@ -207,6 +296,9 @@ import { requireLogin } from '../lib/guard.js'
       modalResetPrompt: document.querySelector('#modal-reset-prompt'),
       modalResultThumb: document.querySelector('#modal-result-thumb'),
       modalResultText: document.querySelector('#modal-result-text'),
+      modalHistory: document.querySelector('#modal-history'),
+      modalHistoryHint: document.querySelector('#modal-history-hint'),
+      modalHistoryGrid: document.querySelector('#modal-history-grid'),
       modalClose: document.querySelector('#modal-close'),
       lightbox: document.querySelector('#lightbox'),
       lightboxImage: document.querySelector('#lightbox-image'),
@@ -425,7 +517,8 @@ import { requireLogin } from '../lib/guard.js'
 
       dom.modalResultThumb.addEventListener('click', () => {
         const asset = findAsset(state.modalId)
-        if (asset?.resultUrl) openLightbox(asset.resultUrl, asset.name)
+        const url = asset ? primaryImageOf(asset) : ''
+        if (url) openLightbox(url, `${asset.name} 主要图片`)
       })
 
       dom.freeForm.addEventListener('submit', generateFreeImage)
@@ -487,6 +580,42 @@ import { requireLogin } from '../lib/guard.js'
         return
       }
 
+      const historyAction = event.target.closest('[data-history-action]')
+      if (historyAction) {
+        const asset = findAsset(state.modalId)
+        if (!asset) return
+        const url = historyAction.dataset.url || ''
+        if (historyAction.dataset.historyAction === 'primary' && url) {
+          asset.primaryUrl = url
+          persistSoon()
+          renderAssetModalState()
+          renderTable(asset.type)
+          showToast('已设为主要图片')
+        } else if (historyAction.dataset.historyAction === 'preview' && url) {
+          openLightbox(url, `${asset.name} 历史生成图`)
+        }
+        return
+      }
+
+      const refAction = event.target.closest('[data-ref-action]')
+      if (refAction) {
+        const action = refAction.dataset.refAction
+        if (action === 'preview') {
+          openLightbox(refAction.dataset.refUrl || '', refAction.dataset.refLabel || '面部参考图')
+        } else if (action === 'upload') {
+          startReferenceUpload(refAction.dataset.refCharacter || '')
+        } else if (action === 'clear') {
+          clearReference(refAction.dataset.refCharacter || '')
+        }
+        return
+      }
+
+      const groupToggle = event.target.closest('[data-group-toggle]')
+      if (groupToggle) {
+        toggleGroup(groupToggle.dataset.groupToggle || '', groupToggle.dataset.groupType || 'role')
+        return
+      }
+
       const rowAction = event.target.closest('[data-row-action]')
       if (rowAction) {
         const asset = findAsset(rowAction.dataset.id)
@@ -499,12 +628,16 @@ import { requireLogin } from '../lib/guard.js'
           case 'generate':
             startBatch([asset.id], `生成 ${asset.name}`)
             break
-          case 'preview':
-            if (asset.resultUrl) openLightbox(asset.resultUrl, asset.name)
+          case 'preview': {
+            const url = primaryImageOf(asset)
+            if (url) openLightbox(url, `${asset.name} 主要图片`)
             break
-          case 'download':
-            if (asset.resultUrl) downloadImage(asset.resultUrl, assetFilename(asset))
+          }
+          case 'download': {
+            const url = primaryImageOf(asset)
+            if (url) downloadImage(url, assetFilename(asset))
             break
+          }
         }
         return
       }
@@ -538,7 +671,7 @@ import { requireLogin } from '../lib/guard.js'
           selectType(type)
           break
         case 'clear-selection':
-          state.selected.clear()
+          selectedIdsOf(type).forEach(id => state.selected.delete(id))
           renderTable(type)
           refreshSelectionLabels()
           break
@@ -546,10 +679,13 @@ import { requireLogin } from '../lib/guard.js'
           applyBulkParams(type)
           break
         case 'generate-selected':
-          startBatch([...state.selected], '批量生成所选资产')
+          startBatch(selectedIdsOf(type), '批量生成所选资产')
           break
         case 'generate-type':
           generateWholeType(type)
+          break
+        case 'download-selected':
+          downloadSelectedAssets(type)
           break
         case 'previous-page':
           state.page[type] = Math.max(1, state.page[type] - 1)
@@ -597,6 +733,24 @@ import { requireLogin } from '../lib/guard.js'
       // 「保存风格」按钮：立即保存当前编辑中的风格（校验失败会提示原因）
       if (action === 'save') {
         savePendingStyleIfValid(false)
+        return
+      }
+
+      // 导出当前项目的三套风格为 JSON
+      if (action === 'export') {
+        exportStyles()
+        return
+      }
+
+      // 导入 JSON：先落盘未保存的编辑，再打开文件选择
+      if (action === 'import') {
+        if (!savePendingStyleIfValid(true)) {
+          showToast('当前风格有未填完整的字段，请先修正后再导入', true)
+          return
+        }
+        if (!dom.styleImport) return
+        dom.styleImport.value = ''
+        dom.styleImport.click()
         return
       }
 
@@ -691,7 +845,89 @@ import { requireLogin } from '../lib/guard.js'
       return true
     }
 
+    /** 导出当前项目的三套风格为 JSON 文件 */
+    function exportStyles() {
+      if (!savePendingStyleIfValid(true)) {
+        showToast('当前风格有未填完整的字段，请先修正后再导出', true)
+        return
+      }
+
+      const payload = buildStyleExport(state.styles, state.defaultStyle)
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `画境-风格库-${timestamp()}.json`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      showToast('已导出三套风格库')
+    }
+
+    /** 导入风格 JSON：按名称合并，同名覆盖描述并保留本地 id，不删除现有风格 */
+    async function handleStyleImportFile(file) {
+      if (!file) return
+      if (file.size > 2 * 1024 * 1024) {
+        showToast('风格文件不能超过 2 MB', true)
+        return
+      }
+
+      try {
+        const incoming = parseStyleFile(await file.text())
+        const plan = planStyleImport(state.styles, state.defaultStyle, incoming)
+        if (!plan.added && !plan.updated) {
+          showToast('文件里的风格与当前完全一致，无需导入')
+          return
+        }
+        if (!window.confirm(`将新增 ${plan.added} 个、覆盖 ${plan.updated} 个同名风格，导入后立即生效。继续吗？`)) {
+          return
+        }
+
+        state.styles = plan.styles
+        state.defaultStyle = plan.defaultStyle
+        state.assets.forEach(asset => {
+          asset.styleId = resolveAssetStyleId(asset, asset.styleId)
+        })
+        if (!findStyle(state.styleType, state.styleEditingId)) {
+          state.styleEditingId = state.defaultStyle[state.styleType] || styleList(state.styleType)[0]?.id || ''
+        }
+        state.styleDirty = false
+        persist()
+        renderStylePage()
+        refreshCurrentTable()
+        showToast(`风格导入完成：新增 ${plan.added} 个，覆盖 ${plan.updated} 个`)
+      } catch (error) {
+        showToast(`导入失败：${error.message || '文件格式无效'}`, true)
+      }
+    }
+
     function handleChange(event) {
+      // 角色面部参考图：文件选好后走上传流程
+      if (event.target === dom.refFile) {
+        handleReferenceFile(event.target.files?.[0])
+        return
+      }
+
+      // 风格库导入：选好 JSON 后解析合并
+      if (event.target === dom.styleImport) {
+        handleStyleImportFile(event.target.files?.[0])
+        return
+      }
+
+      // 并行生成数：记住选择，三个资产页共用同一个值
+      const concurrency = event.target.closest('[data-concurrency]')
+      if (concurrency) {
+        const value = Math.max(1, Math.min(concurrencyLimit(), Number(concurrency.value) || 1))
+        state.concurrency = value
+        state.concurrencyCustom = true
+        document.querySelectorAll('[data-concurrency]').forEach(select => {
+          select.value = String(value)
+        })
+        persistSoon()
+        return
+      }
+
       // 自由创作画面比例：记住选择，刷新后保持
       if (event.target === dom.freeRatio) {
         state.freeRatio = dom.freeRatio.value
@@ -739,6 +975,21 @@ import { requireLogin } from '../lib/guard.js'
         return
       }
 
+      const groupCheck = event.target.closest('[data-select-group]')
+      if (groupCheck) {
+        const type = groupCheck.dataset.selectGroupType || 'role'
+        const group = buildAssetGroups(type).find(item => item.key === groupCheck.dataset.selectGroup)
+        if (group) {
+          group.assets.forEach(asset => {
+            if (groupCheck.checked) state.selected.add(asset.id)
+            else state.selected.delete(asset.id)
+          })
+          renderTable(type)
+          refreshSelectionLabels()
+        }
+        return
+      }
+
       const checkbox = event.target.closest('[data-select-id]')
       if (checkbox) {
         const id = checkbox.dataset.selectId
@@ -746,6 +997,9 @@ import { requireLogin } from '../lib/guard.js'
         else state.selected.delete(id)
         const row = checkbox.closest('tr')
         row?.classList.toggle('selected-row', checkbox.checked)
+        // 分组子行的勾选要连带刷新父行的整组勾选框
+        const asset = findAsset(id)
+        if (asset && row?.classList.contains('asset-child-row')) renderTable(asset.type)
         refreshSelectionLabels()
         return
       }
@@ -825,6 +1079,12 @@ import { requireLogin } from '../lib/guard.js'
         state.defaultStyle = normalizeDefaultStyles(saved.defaultStyle, state.styles)
         state.assets = saved.assets.map(asset => normalizeAsset(asset))
         state.bulkParams = normalizeBulkParams(saved.bulkParams)
+        // 恢复用户手动改过的并行数；没改过就跟随默认值（默认 5 会随版本调整）
+        const savedConcurrency = Number(saved.concurrency)
+        if (saved.concurrencyCustom === true && Number.isFinite(savedConcurrency) && savedConcurrency >= 1) {
+          state.concurrency = Math.floor(savedConcurrency)
+          state.concurrencyCustom = true
+        }
         // 恢复自由创作的画面比例选择（配合服务端配置渲染后回填）
         if (typeof saved.freeRatio === 'string' && saved.freeRatio) {
           state.freeRatio = saved.freeRatio
@@ -941,6 +1201,7 @@ import { requireLogin } from '../lib/guard.js'
       state.selected.clear()
       state.search = { role: '', scene: '', prop: '' }
       state.page = { role: 1, scene: 1, prop: 1 }
+      state.collapsedGroups.clear()
       state.activeProjectId = project.id
     }
 
@@ -1068,6 +1329,19 @@ import { requireLogin } from '../lib/guard.js'
         ratio: asset.ratio || TYPE_META[type].defaultRatio,
         status: asset.status === 'done' || asset.status === 'error' ? asset.status : 'idle',
         styleId: '',
+        // 角色面部参考图：存储目录里的相对路径（参考图/<文件名>）
+        referencePath: typeof asset.referencePath === 'string' ? asset.referencePath : '',
+        // 历史生成图（新→旧，最多 HISTORY_LIMIT 条）与主要图片
+        history: (Array.isArray(asset.history) ? asset.history : [])
+          .filter(item => item && typeof item.url === 'string' && item.url)
+          .map(item => ({
+            url: item.url,
+            w: Number(item.w) > 0 ? Number(item.w) : 0,
+            h: Number(item.h) > 0 ? Number(item.h) : 0,
+            at: typeof item.at === 'string' ? item.at : '',
+          }))
+          .slice(0, HISTORY_LIMIT),
+        primaryUrl: typeof asset.primaryUrl === 'string' ? asset.primaryUrl : '',
       }
       normalized.styleId = resolveAssetStyleId(normalized, asset.styleId)
       normalized.prompt = asset.prompt || buildPrompt(normalized)
@@ -1090,6 +1364,8 @@ import { requireLogin } from '../lib/guard.js'
           fileName: state.fileName,
           importedAt: state.importedAt,
           activeTab: state.activeTab,
+          concurrency: state.concurrency,
+          concurrencyCustom: state.concurrencyCustom,
           freeRatio: state.freeRatio,
           freePrompt: state.freePrompt,
           freeImageUrl: state.freeImageUrl,
@@ -1308,6 +1584,7 @@ import { requireLogin } from '../lib/guard.js'
         state.selected.clear()
         state.search = { role: '', scene: '', prop: '' }
         state.page = { role: 1, scene: 1, prop: 1 }
+        state.collapsedGroups.clear()
         state.styleType = state.assets.find(asset => ['role', 'scene', 'prop'].includes(asset.type))?.type || 'role'
         state.activeTab = ['role', 'scene', 'prop'].find(type => countType(type) > 0) || 'import'
         // 先把资产写进新项目，再刷新列表（顺序不能反，否则列表会用空数据覆盖）
@@ -1366,6 +1643,9 @@ import { requireLogin } from '../lib/guard.js'
             height: 0,
             error: '',
             updatedAt: '',
+            referencePath: '',
+            history: [],
+            primaryUrl: '',
           }
           asset.prompt = buildPrompt(asset)
           assets.push(asset)
@@ -1477,10 +1757,25 @@ import { requireLogin } from '../lib/guard.js'
       return findStyle(asset.type, resolveAssetStyleId(asset, asset.styleId)) || null
     }
 
+    /** 有面部参考图时的提示词段落：图像条件之外再加一层文字约束 */
+    function faceReferenceBlock(asset) {
+      if (asset.type !== 'role' || !referenceForAsset(asset)) return ''
+      return [
+        '【面部参考图｜最高优先级】',
+        '必须与随请求附带的面部参考图是同一个人：脸型、五官比例与形状、眼距、鼻型、唇形、肤色与年龄感保持一致。',
+        '只按本条资产的状态改变发型、妆容、服装、伤痕、表情与光线；不要换脸、不要改变人物身份，也不要直接复用参考图的构图与姿势。',
+      ].join('\n')
+    }
+
     function composeGenerationPrompt(asset) {
       const style = selectedStyle(asset)
+      const reference = faceReferenceBlock(asset)
       if (!style) {
-        return `${asset.prompt}\n\n【最终画面要求】\n本项必须严格遵循资产内容进行绘制，不要添加解释性文字、水印或界面元素。`
+        return [
+          asset.prompt,
+          reference,
+          '【最终画面要求】\n本项必须严格遵循资产内容进行绘制，不要添加解释性文字、水印或界面元素。',
+        ].filter(Boolean).join('\n\n')
       }
       return [
         '【风格指令｜最高优先级】',
@@ -1490,7 +1785,8 @@ import { requireLogin } from '../lib/guard.js'
         '',
         '【资产内容】',
         asset.prompt,
-      ].join('\n')
+        reference ? `\n${reference}` : '',
+      ].join('\n').trimEnd()
     }
 
     function assetPromptLength(asset) {
@@ -1592,7 +1888,7 @@ import { requireLogin } from '../lib/guard.js'
           </div>
         </div>
 
-        <div class="tabs" style="border:0;padding:0 0 16px">
+        <div class="tabs style-type-tabs" aria-label="风格资产类型">
           ${['role', 'scene', 'prop'].map(styleType => `
             <button class="tab ${styleType === state.styleType ? 'active' : ''}" data-style-type="${styleType}" data-style-action="switch-type" type="button">
               ${TYPE_META[styleType].label} <span class="tab-count">${styleList(styleType).length}</span>
@@ -1604,11 +1900,15 @@ import { requireLogin } from '../lib/guard.js'
           <aside class="style-library">
             <div class="style-library-head">
               <h3>${meta.label}风格库</h3>
+              <div class="style-transfer">
+                <button class="mini-button" data-style-action="export" type="button" title="把三套风格与默认项导出为 JSON 文件">导出 JSON</button>
+                <button class="mini-button" data-style-action="import" type="button" title="从 JSON 文件合并风格（同名覆盖描述）">导入 JSON</button>
+              </div>
             </div>
             <div class="style-list">
               ${list.map(style => `
                 <button class="style-list-item ${style.id === editing.id ? 'active' : ''}" data-style-action="open" data-style-id="${escapeAttr(style.id)}" type="button">
-                  <span style="min-width:0">
+                  <span class="style-list-copy">
                     <span class="style-list-name">${escapeHtml(style.name)}</span>
                     <span class="style-list-meta">${style.updatedAt ? '更新于 ' + formatDateTime(style.updatedAt) : '尚未修改'}</span>
                   </span>
@@ -1616,7 +1916,7 @@ import { requireLogin } from '../lib/guard.js'
                 </button>
               `).join('')}
             </div>
-            <button class="button primary" data-style-action="create" type="button" style="width:100%;margin-top:13px">＋ 新建${meta.singular}风格</button>
+            <button class="button primary style-create-button" data-style-action="create" type="button">＋ 新建${meta.singular}风格</button>
           </aside>
 
           <section class="style-editor">
@@ -1676,26 +1976,46 @@ import { requireLogin } from '../lib/guard.js'
         </div>
 
         <div class="toolbar">
-          <div class="search-wrap">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="11" cy="11" r="7"></circle>
-              <path d="m20 20-4-4"></path>
-            </svg>
-            <input class="input" data-search="${type}" value="${escapeAttr(state.search[type])}" placeholder="搜索资产名称或字段内容">
+          <div class="toolbar-row toolbar-row-main">
+            <div class="search-wrap">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m20 20-4-4"></path>
+              </svg>
+              <input class="input" data-search="${type}" value="${escapeAttr(state.search[type])}" placeholder="搜索资产名称或字段内容" aria-label="搜索${meta.label}">
+            </div>
+            <div class="toolbar-group toolbar-selection" aria-label="选择资产">
+              <button class="button secondary" data-action="select-page" type="button">全选本页</button>
+              <button class="button secondary" data-action="select-type" type="button">全选本类型</button>
+              <button class="button ghost" data-action="clear-selection" type="button">清除选择</button>
+            </div>
           </div>
-          <select class="select" id="bulk-ratio-${type}" aria-label="批量画面比例">
-            ${ratioOptions(state.bulkParams[type]?.ratio || meta.defaultRatio)}
-          </select>
-          <select class="select" id="bulk-style-${type}" aria-label="批量风格">
-            ${styleOptions(type, state.bulkParams[type]?.styleId || state.defaultStyle[type])}
-          </select>
-          <button class="button secondary" data-action="apply-params" type="button">应用到所选 <span data-selected-inline="${type}"></span></button>
-          <span class="toolbar-separator"></span>
-          <button class="button secondary" data-action="select-page" type="button">全选本页</button>
-          <button class="button secondary" data-action="select-type" type="button">全选本类型</button>
-          <button class="button ghost" data-action="clear-selection" type="button">清除选择</button>
-          <button class="button primary" data-action="generate-selected" type="button" data-generate-selected>批量生成所选</button>
-          <button class="button secondary" data-action="generate-type" type="button" data-generate-type>生成全部${meta.singular}</button>
+          <div class="toolbar-row toolbar-row-actions">
+            <div class="toolbar-group toolbar-params" aria-label="批量生成参数">
+              <label class="toolbar-field">
+                <span>画幅</span>
+                <select class="select" id="bulk-ratio-${type}" aria-label="批量画面比例">
+                  ${ratioOptions(state.bulkParams[type]?.ratio || meta.defaultRatio)}
+                </select>
+              </label>
+              <label class="toolbar-field toolbar-field-style">
+                <span>风格</span>
+                <select class="select" id="bulk-style-${type}" aria-label="批量风格">
+                  ${styleOptions(type, state.bulkParams[type]?.styleId || state.defaultStyle[type])}
+                </select>
+              </label>
+              <button class="button secondary" data-action="apply-params" type="button">应用到所选 <span data-selected-inline="${type}"></span></button>
+            </div>
+            <div class="toolbar-group toolbar-generate" aria-label="生成与下载">
+              <label class="toolbar-field toolbar-concurrency">
+                <span>并行</span>
+                ${concurrencySelect()}
+              </label>
+              <button class="button secondary" data-action="download-selected" type="button" data-download-selected>下载所选</button>
+              <button class="button secondary" data-action="generate-type" type="button" data-generate-type>生成全部${meta.singular}</button>
+              <button class="button primary" data-action="generate-selected" type="button" data-generate-selected>批量生成所选</button>
+            </div>
+          </div>
         </div>
 
         <div class="table-shell">
@@ -1705,6 +2025,7 @@ import { requireLogin } from '../lib/guard.js'
                 <tr>
                   <th class="col-check"><input type="checkbox" data-page-check="${type}" aria-label="选择本页"></th>
                   <th class="col-name">资产</th>
+                  ${type === 'role' ? '<th class="col-ref">面部参考</th>' : ''}
                   <th class="col-fields">JSON 字段</th>
                   <th class="col-style">风格</th>
                   <th class="col-prompt">提示词预览</th>
@@ -1734,25 +2055,33 @@ import { requireLogin } from '../lib/guard.js'
       renderTable(type)
     }
 
+    const tableRenderSeq = { role: 0, scene: 0, prop: 0 }
+
     function renderTable(type) {
+      tableRenderSeq[type] = (tableRenderSeq[type] || 0) + 1
       const tbody = document.querySelector(`#asset-table-${type}`)
       const pagination = document.querySelector(`#asset-pagination-${type}`)
       if (!tbody || !pagination) return
 
       const all = filteredAssets(type)
-      const pages = Math.max(1, Math.ceil(all.length / state.pageSize))
+      const pageList = paginateGroups(type)
+      const pages = Math.max(1, pageList.length)
       state.page[type] = Math.min(Math.max(1, state.page[type]), pages)
-      const start = (state.page[type] - 1) * state.pageSize
-      const pageAssets = all.slice(start, start + state.pageSize)
+      const pageGroups = pageList[state.page[type] - 1] || []
+      const pageAssets = pageGroups.flatMap(group => group.assets)
+      // 分组后每页组数不等，起始序号按前面各页的资产数累计
+      const start = pageList
+        .slice(0, state.page[type] - 1)
+        .reduce((sum, groups) => sum + groups.reduce((count, group) => count + group.assets.length, 0), 0)
 
       document.querySelectorAll(`[data-page-count="${type}"]`).forEach(element => {
         element.textContent = String(countType(type))
       })
 
       if (!pageAssets.length) {
-        tbody.innerHTML = `<tr><td class="empty-table" colspan="10">${state.search[type] ? '没有匹配的资产' : '这一页暂无资产'}</td></tr>`
+        tbody.innerHTML = `<tr><td class="empty-table" colspan="${type === 'role' ? 10 : 9}">${state.search[type] ? '没有匹配的资产' : '这一页暂无资产'}</td></tr>`
       } else {
-        tbody.innerHTML = pageAssets.map(asset => assetRow(asset)).join('')
+        tbody.innerHTML = pageGroups.map(group => groupRows(type, group)).join('')
       }
 
       const pageCheck = document.querySelector(`[data-page-check="${type}"]`)
@@ -1762,8 +2091,18 @@ import { requireLogin } from '../lib/guard.js'
         pageCheck.indeterminate = !allSelected && pageAssets.some(asset => state.selected.has(asset.id))
       }
 
+      // 整组勾选框：全选 / 半选状态在渲染后补上
+      const groupByKey = new Map(pageGroups.filter(group => group.grouped).map(group => [group.key, group]))
+      tbody.querySelectorAll('[data-select-group]').forEach(input => {
+        const group = groupByKey.get(input.dataset.selectGroup)
+        if (!group) return
+        const chosen = group.assets.filter(asset => state.selected.has(asset.id)).length
+        input.checked = chosen === group.assets.length
+        input.indeterminate = chosen > 0 && chosen < group.assets.length
+      })
+
       pagination.innerHTML = `
-        <span class="table-summary">显示 ${all.length ? start + 1 : 0}–${Math.min(start + state.pageSize, all.length)}，共 ${all.length} 项${state.search[type] ? '（已筛选）' : ''}</span>
+        <span class="table-summary">显示 ${all.length ? start + 1 : 0}–${start + pageAssets.length}，共 ${all.length} 项${state.search[type] ? '（已筛选）' : ''}</span>
         <div class="pagination">
           <button class="icon-button" data-action="previous-page" type="button" ${state.page[type] <= 1 ? 'disabled' : ''} aria-label="上一页">←</button>
           <span class="page-label">第 ${state.page[type]} / ${pages} 页</span>
@@ -1774,10 +2113,233 @@ import { requireLogin } from '../lib/guard.js'
       refreshSelectionLabels()
     }
 
-    function assetRow(asset) {
+    const GROUP_EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)'
+    const GROUP_EASE_IN = 'ease-in'
+    const GROUP_OPEN_DURATION = 220
+    const GROUP_CLOSE_DURATION = 160
+    const GROUP_CASCADE_DURATION = 190
+    const GROUP_STAGGER = 18
+    const GROUP_STAGGER_MAX = 6
+
+    function groupMotionAllowed() {
+      if (typeof Element === 'undefined' || typeof Element.prototype.animate !== 'function') return false
+      return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    }
+
+    function groupRowNodes(tbody, key) {
+      const rows = [...tbody.querySelectorAll('tr')]
+      return {
+        rows,
+        children: rows.filter(row => row.dataset.groupChild === key),
+        parent: rows.find(row => row.dataset.groupRow === key) || null,
+      }
+    }
+
+    function groupTailRows(rows, children) {
+      if (!children.length) return []
+      return rows.slice(rows.indexOf(children[children.length - 1]) + 1)
+    }
+
+    function groupRowsHeight(rows) {
+      return rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0)
+    }
+
+    function settleGroupAnimations(animations, onSettled) {
+      Promise.all(animations.map(animation => animation.finished.catch(() => {}))).then(() => {
+        animations.forEach(animation => animation.cancel())
+        if (onSettled) onSettled()
+      })
+    }
+
+    function clearGroupAnimations(rows) {
+      rows.forEach(row => {
+        if (typeof row.getAnimations !== 'function') return
+        row.getAnimations().forEach(animation => animation.cancel())
+      })
+    }
+
+    function toggleGroup(key, type) {
+      if (!key) return
+      const opening = state.collapsedGroups.has(key)
+      const seq = tableRenderSeq[type]
+      if (opening) state.collapsedGroups.delete(key)
+      else state.collapsedGroups.add(key)
+      if (!groupMotionAllowed()) {
+        renderTable(type)
+        return
+      }
+      if (opening) animateGroupOpen(type, key)
+      else animateGroupClose(type, key, seq)
+    }
+
+    function animateGroupOpen(type, key) {
+      renderTable(type)
+      const tbody = document.querySelector(`#asset-table-${type}`)
+      if (!tbody) return
+      const { rows, children, parent } = groupRowNodes(tbody, key)
+      if (!parent || !children.length) return
+      const tail = groupTailRows(rows, children)
+      const cascade = groupRowsHeight(children)
+      const animations = children.map((row, index) => row.animate(
+        [
+          { opacity: 0, transform: 'translateY(-6px)' },
+          { opacity: 1, transform: 'translateY(0)' },
+        ],
+        {
+          duration: GROUP_OPEN_DURATION,
+          easing: GROUP_EASE_OUT,
+          delay: Math.min(index, GROUP_STAGGER_MAX - 1) * GROUP_STAGGER,
+          fill: 'both',
+        },
+      ))
+      if (cascade) {
+        tail.forEach(row => {
+          animations.push(row.animate(
+            [
+              { transform: `translateY(-${cascade}px)` },
+              { transform: 'translateY(0)' },
+            ],
+            { duration: GROUP_OPEN_DURATION, easing: GROUP_EASE_OUT, fill: 'both' },
+          ))
+        })
+      }
+      settleGroupAnimations(animations)
+    }
+
+    function animateGroupClose(type, key, seq) {
+      const tbody = document.querySelector(`#asset-table-${type}`)
+      const nodes = tbody ? groupRowNodes(tbody, key) : null
+      if (!nodes || !nodes.children.length) {
+        if (seq === tableRenderSeq[type] && state.collapsedGroups.has(key)) renderTable(type)
+        return
+      }
+      const { rows, children } = nodes
+      const toggles = [...tbody.querySelectorAll('[data-group-toggle]')]
+        .filter(button => button.dataset.groupToggle === key)
+      toggles.forEach(button => button.setAttribute('aria-expanded', 'false'))
+      children.forEach(row => {
+        row.classList.add('is-group-leaving')
+      })
+      const tail = groupTailRows(rows, children)
+      const cascade = groupRowsHeight(children)
+      clearGroupAnimations([...children, ...tail])
+      const animations = children.map(row => row.animate(
+        [
+          { opacity: 1, transform: 'translateY(0)' },
+          { opacity: 0, transform: 'translateY(-4px)' },
+        ],
+        { duration: GROUP_CLOSE_DURATION, easing: GROUP_EASE_IN, fill: 'both' },
+      ))
+      if (cascade) {
+        tail.forEach(row => {
+          animations.push(row.animate(
+            [
+              { transform: 'translateY(0)' },
+              { transform: `translateY(-${cascade}px)` },
+            ],
+            { duration: GROUP_CASCADE_DURATION, easing: GROUP_EASE_IN, fill: 'both' },
+          ))
+        })
+      }
+      settleGroupAnimations(animations, () => {
+        if (seq !== tableRenderSeq[type]) return
+        if (!state.collapsedGroups.has(key)) return
+        renderTable(type)
+      })
+    }
+
+    /**
+     * 按展示单位输出：分组角色先出父行，再出缩进的各状态子行；
+     * 未分组的资产仍是一条普通行。
+     */
+    function groupRows(type, group) {
+      if (!group.grouped) return assetRow(group.assets[0])
+      const collapsed = state.collapsedGroups.has(group.key)
+      const head = groupRow(type, group, collapsed)
+      if (collapsed) return head
+      return head + group.items.map(item => assetRow(item.asset, item.state, true, group.key)).join('')
+    }
+
+    /** 角色父行：角色名 + 状态标签，展开时下方缩进列出各状态。 */
+    function groupRow(type, group, collapsed) {
+      const total = group.assets.length
+      const done = group.assets.filter(asset => asset.status === 'done').length
+      const failed = group.assets.some(asset => asset.status === 'error')
+      const busy = group.assets.some(asset => asset.status === 'generating' || asset.status === 'queued')
+      const pill = statusPill(busy ? 'generating' : done === total ? 'done' : failed ? 'error' : 'idle')
+      const percent = Math.round((done / total) * 100)
+      const styleNames = [...new Set(group.assets.map(asset => selectedStyle(asset)?.name || '默认风格'))]
+      const ratios = [...new Set(group.assets.map(asset => asset.ratio).filter(Boolean))]
+      const stateChips = group.items
+        .slice(0, 4)
+        .map(item => `<span class="field-chip">${escapeHtml(item.state || item.asset.name)}</span>`)
+        .join('')
+      const more = group.items.length > 4 ? `<span class="field-chip">+${group.items.length - 4}</span>` : ''
+      const keyAttr = escapeAttr(group.key)
+      const isRole = type === 'role'
+      const reference = isRole ? referenceForAsset(group.assets[0]) : ''
+      const unitWord = isRole ? '状态' : '子场景'
+      const summaryText = isRole
+        ? `同一角色 · ${total} 种状态`
+        : `同一场景 · ${total} 个子场景`
+
+      return `
+        <tr class="asset-group-row" data-group-row="${keyAttr}">
+          <td class="col-check">
+            <input type="checkbox" data-select-group="${keyAttr}" data-select-group-type="${type}" aria-label="选择 ${escapeAttr(group.character)} 的全部${unitWord}">
+          </td>
+          <td class="col-name">
+            <div class="group-name">
+              <button class="group-toggle" data-group-toggle="${keyAttr}" data-group-type="${type}" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? '展开' : '收起'} ${escapeAttr(group.character)} 的${unitWord}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <span class="group-title" title="${escapeAttr(group.character)}">${escapeHtml(group.character)}</span>
+            </div>
+            <span class="asset-kind">${summaryText}</span>
+          </td>
+          ${isRole ? `<td class="col-ref">
+            ${referenceCell({ character: group.character, path: reference, editable: true })}
+          </td>` : ''}
+          <td class="col-fields">
+            <div class="field-chips">${stateChips}${more}</div>
+            <span class="asset-kind">按${unitWord}分别生成</span>
+          </td>
+          <td class="col-style">
+            <span class="group-value" title="${escapeAttr(styleNames.join('、'))}">${escapeHtml(styleNames.length > 1 ? '多种风格' : styleNames[0] || '')}</span>
+            <span class="asset-kind">见各${unitWord}行</span>
+          </td>
+          <td class="col-prompt">
+            <span class="group-hint">展开后可逐条查看提示词，可单独生成某一${unitWord}。</span>
+          </td>
+          <td class="col-ratio">
+            <span class="group-value">${ratios.length > 1 ? '多种比例' : escapeHtml(ratios[0] || '')}</span>
+          </td>
+          <td class="col-status">
+            <div class="cell-progress">
+              ${pill}
+              <div class="cell-progress-track">
+                <div class="cell-progress-bar${done === total ? ' done' : ''}" style="width:${percent}%"></div>
+              </div>
+              <span class="cell-progress-text">已完成 ${done} / ${total}</span>
+            </div>
+          </td>
+          <td class="col-result">
+            <span class="group-value" title="生成结果请看各${unitWord}行">—</span>
+          </td>
+          <td class="col-actions">
+            <div class="row-actions">
+              <button class="mini-button" data-group-toggle="${keyAttr}" data-group-type="${type}" type="button">${collapsed ? '展开' : '收起'}</button>
+            </div>
+          </td>
+        </tr>
+      `
+    }
+
+    function assetRow(asset, stateLabel = '', isChild = false, groupKey = '') {
       const selected = state.selected.has(asset.id)
       const summary = fieldSummary(asset)
       const currentStyle = selectedStyle(asset)
+      const groupAttr = isChild && groupKey ? ` data-group-child="${escapeAttr(groupKey)}"` : ''
       const chips = asset.fields
         .filter(field => !TYPE_META[asset.type].nameLabels.includes(field.label))
         .slice(0, 3)
@@ -1785,14 +2347,18 @@ import { requireLogin } from '../lib/guard.js'
         .join('')
 
       return `
-        <tr class="${selected ? 'selected-row' : ''}">
+        <tr class="${[selected ? 'selected-row' : '', isChild ? 'asset-child-row' : ''].filter(Boolean).join(' ')}"${groupAttr}>
           <td class="col-check">
             <input type="checkbox" data-select-id="${asset.id}" ${selected ? 'checked' : ''} aria-label="选择 ${escapeAttr(asset.name)}">
           </td>
           <td class="col-name">
+            ${isChild && stateLabel ? `<span class="state-chip">${escapeHtml(stateLabel)}</span>` : ''}
             <button class="asset-name-button" data-row-action="open" data-id="${asset.id}" title="${escapeAttr(asset.name)}">${escapeHtml(asset.name)}</button>
             <span class="asset-kind">${TYPE_META[asset.type].singular} · ${asset.fields.length} 个字段</span>
           </td>
+          ${asset.type === 'role' ? `<td class="col-ref">
+            ${referenceCell({ character: characterOf(asset), path: referenceForAsset(asset), editable: !isChild })}
+          </td>` : ''}
           <td class="col-fields">
             <div class="field-chips">${chips}</div>
             <span class="asset-kind">${escapeHtml(summary)}</span>
@@ -1823,9 +2389,116 @@ import { requireLogin } from '../lib/guard.js'
       `
     }
 
+    /** 这条资产的历史生成图：新→旧；老数据只有 resultUrl 时也视作一条 */
+    function assetHistory(asset) {
+      const list = Array.isArray(asset.history)
+        ? asset.history.filter(item => item && typeof item.url === 'string' && item.url)
+        : []
+      if (asset.resultUrl && !list.some(item => item.url === asset.resultUrl)) {
+        list.unshift({
+          url: asset.resultUrl,
+          w: asset.width || 0,
+          h: asset.height || 0,
+          at: asset.updatedAt || '',
+        })
+      }
+      return list.slice(0, HISTORY_LIMIT)
+    }
+
+    /** 主图：用户选过的优先，否则用最新结果 */
+    function primaryImageOf(asset) {
+      return asset.primaryUrl || asset.resultUrl || ''
+    }
+
+    /** 主图对应的尺寸/时间（历史里找不到就退回资产自身记录的宽高） */
+    function primaryEntry(asset) {
+      const url = primaryImageOf(asset)
+      return assetHistory(asset).find(item => item.url === url) || {
+        url,
+        w: asset.width || 0,
+        h: asset.height || 0,
+        at: asset.updatedAt || '',
+      }
+    }
+
+    /** 记录一次生成：新图排最前，按 URL 去重，超出上限丢最旧的 */
+    function pushAssetHistory(asset, entry) {
+      const next = assetHistory(asset).filter(item => item.url !== entry.url)
+      asset.history = [entry, ...next].slice(0, HISTORY_LIMIT)
+    }
+
+    /**
+     * 账号生成记录只拉一次（会话内缓存），用于回填功能上线前的历史图。
+     * 失败时静默降级为「只显示本地记录」。
+     */
+    function loadHistoryEntries() {
+      if (historyEntriesCache) return Promise.resolve(historyEntriesCache)
+      if (!historyEntriesPromise) {
+        historyEntriesPromise = fetchHistory(500)
+          .then(result => {
+            historyEntriesCache = Array.isArray(result?.entries) ? result.entries : []
+            return historyEntriesCache
+          })
+          .catch(() => {
+            historyEntriesCache = []
+            return historyEntriesCache
+          })
+          .finally(() => { historyEntriesPromise = null })
+      }
+      return historyEntriesPromise
+    }
+
+    /** 把账号历史里同名同类、本地还没记录过的图片补进资产历史 */
+    async function hydrateAssetHistory(asset) {
+      const entries = await loadHistoryEntries()
+      const category = TYPE_META[asset.type].singular
+      const existing = new Set(assetHistory(asset).map(item => item.url))
+      const added = entries
+        .filter(entry => entry && entry.imageUrl && entry.name === asset.name && entry.category === category
+          && !existing.has(entry.imageUrl))
+        .map(entry => ({ url: entry.imageUrl, w: entry.width || 0, h: entry.height || 0, at: entry.createdAt || '' }))
+      if (!added.length) return
+
+      asset.history = [...assetHistory(asset), ...added]
+        .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
+        .slice(0, HISTORY_LIMIT)
+      persistSoon()
+      if (state.modalId === asset.id) renderAssetModalState()
+      refreshCurrentTable()
+    }
+
+    /** 编辑弹窗底部的历史图网格 */
+    function renderModalHistory(asset) {
+      if (!dom.modalHistory || !dom.modalHistoryGrid) return
+      const list = assetHistory(asset)
+      const primary = primaryImageOf(asset)
+
+      dom.modalHistory.hidden = list.length === 0
+      if (!list.length) {
+        dom.modalHistoryGrid.innerHTML = ''
+        dom.modalHistoryHint.textContent = ''
+        return
+      }
+
+      dom.modalHistoryHint.textContent = `共 ${list.length} 张 · 批量下载只会取选中的主图`
+      dom.modalHistoryGrid.innerHTML = list.map(item => {
+        const isPrimary = item.url === primary
+        return `
+          <div class="history-tile${isPrimary ? ' primary' : ''}">
+            <button class="history-preview" type="button" data-history-action="preview" data-url="${escapeAttr(item.url)}" title="查看大图">
+              <img src="${escapeAttr(item.url)}" alt="${escapeAttr(asset.name)} 历史生成图" loading="lazy">
+            </button>
+            <button class="history-pick" type="button" data-history-action="primary" data-url="${escapeAttr(item.url)}" ${isPrimary ? 'disabled' : ''}>${isPrimary ? '主要图片' : '设为主要'}</button>
+            <span class="history-meta">${item.w && item.h ? `${item.w} × ${item.h}` : '尺寸未知'}${item.at ? ` · ${formatDateTime(item.at)}` : ''}</span>
+          </div>
+        `
+      }).join('')
+    }
+
     function resultCell(asset) {
-      if (asset.resultUrl) {
-        return `<button class="result-thumb" data-row-action="preview" data-id="${asset.id}" title="查看 ${escapeAttr(asset.name)} 的生成图"><img src="${escapeAttr(asset.resultUrl)}" alt="${escapeAttr(asset.name)} 生成结果"></button>`
+      const url = primaryImageOf(asset)
+      if (url) {
+        return `<button class="result-thumb" data-row-action="preview" data-id="${asset.id}" title="查看 ${escapeAttr(asset.name)} 的主要图片"><img src="${escapeAttr(url)}" alt="${escapeAttr(asset.name)} 主要图片"></button>`
       }
       if (asset.status === 'error') return '<span class="asset-kind" title="' + escapeAttr(asset.error || '生成失败') + '">无结果</span>'
       return '<button class="result-thumb" type="button" disabled>暂无</button>'
@@ -1884,6 +2557,22 @@ import { requireLogin } from '../lib/guard.js'
       return `<div class="cell-progress">${pill}</div>`
     }
 
+    /**
+     * 并行数选择：服务端上限为 1（或不支持并行）时不渲染，保持逐张生成。
+     * 选项上限由服务端控制台决定（最多 8），默认选中 5。
+     */
+    function concurrencySelect() {
+      const limit = concurrencyLimit()
+      if (limit <= 1) return ''
+      const value = Math.min(Math.max(1, state.concurrency), limit)
+      return `<select class="select concurrency-select" data-concurrency aria-label="并行生成数" title="同时生成的数量：调高更快，但上游可能限流或失败">
+        ${Array.from({ length: limit }, (_, index) => {
+          const count = index + 1
+          return `<option value="${count}" ${count === value ? 'selected' : ''}>并行 ${count}</option>`
+        }).join('')}
+      </select>`
+    }
+
     function ratioOptions(selected) {
       const list = serverConfig?.ratios?.length
         ? serverConfig.ratios
@@ -1901,6 +2590,168 @@ import { requireLogin } from '../lib/guard.js'
       return shorten(field?.value || asset.raw, 62)
     }
 
+    /**
+     * 角色、场景按同一主体分组（角色=同一人的不同状态，场景=同一场景的不同区域）；
+     * 道具每条资产自成一组。
+     * 组内只有一条时仍按普通行展示，不做多余缩进。
+     */
+    function buildAssetGroups(type) {
+      const list = filteredAssets(type)
+      if (type === 'prop') {
+        return list.map(asset => ({
+          key: asset.id,
+          character: asset.name,
+          assets: [asset],
+          items: [{ asset, state: '' }],
+          grouped: false,
+        }))
+      }
+
+      // key 带类型前缀：角色「皇宫」和场景「皇宫」的收起状态互不影响
+      return groupAssets(list).map(group => ({ ...group, key: `${type}:${group.key}` }))
+    }
+
+    /** 参考图在浏览器里的地址：项目里只存相对路径，主机名现拼 */
+    function referenceUrl(path) {
+      return `${API_BASE}/api/files/${path.split('/').map(encodeURIComponent).join('/')}`
+    }
+
+    /** 该资产所属角色（非角色资产返回空） */
+    function characterOf(asset) {
+      return asset.type === 'role' ? groupedAssetInfo(asset).group : ''
+    }
+
+    /**
+     * 资产可用的面部参考图：优先自己的，其次同角色其它状态上的。
+     * 这样后导入的新状态不需要重新设置就能继承角色的参考图。
+     */
+    function referenceForAsset(asset) {
+      if (asset.referencePath) return asset.referencePath
+      const character = characterOf(asset)
+      if (!character) return ''
+      const same = state.assets.find(item =>
+        item.type === 'role' && item.referencePath && groupedAssetInfo(item).group === character)
+      return same?.referencePath || ''
+    }
+
+    /** 给某个角色的全部状态写入 / 清除同一个参考图（不受当前搜索过滤影响） */
+    function setCharacterReference(character, path) {
+      state.assets.forEach(asset => {
+        if (asset.type === 'role' && groupedAssetInfo(asset).group === character) {
+          asset.referencePath = path
+        }
+      })
+    }
+
+    /**
+     * 面部参考图单元格：
+     * - 可编辑（角色父行 / 未分组角色行）：上传、替换、清除，点缩略图看大图；
+     * - 子行只展示继承来的缩略图，避免误以为是单独设置。
+     */
+    function referenceCell({ character, path, editable }) {
+      const target = escapeAttr(character)
+      const url = path ? referenceUrl(path) : ''
+
+      if (!path) {
+        return editable
+          ? `<button class="ref-empty" type="button" data-ref-action="upload" data-ref-character="${target}" title="上传「${escapeAttr(character)}」的面部参考图">＋ 上传</button>
+             <span class="asset-kind">同一角色共用</span>`
+          : '<span class="asset-kind">未设置</span>'
+      }
+
+      const thumb = `<button class="ref-thumb${editable ? '' : ' inherited'}" type="button" data-ref-action="preview" data-ref-url="${escapeAttr(url)}" data-ref-label="${escapeAttr(character)} 的面部参考图" title="查看参考图大图"><img src="${escapeAttr(url)}" alt="${escapeAttr(character)} 面部参考图"></button>`
+
+      if (!editable) return `${thumb}<span class="asset-kind">随角色</span>`
+
+      return `${thumb}
+        <span class="ref-actions">
+          <button class="ref-link" type="button" data-ref-action="upload" data-ref-character="${target}">替换</button>
+          <button class="ref-link" type="button" data-ref-action="clear" data-ref-character="${target}">清除</button>
+        </span>`
+    }
+
+    /** 打开文件选择框：记录目标角色，选完由 handleReferenceFile 接手 */
+    function startReferenceUpload(character) {
+      if (!character || state.refUploading) return
+      state.refTarget = character
+      if (!dom.refFile) return
+      dom.refFile.value = ''
+      dom.refFile.click()
+    }
+
+    /**
+     * 上传选好的参考图：校验类型/大小 → data URL → 服务端保存 → 写回该角色全部状态。
+     * 失败只提示，不改动原有参考图。
+     */
+    async function handleReferenceFile(file) {
+      const character = state.refTarget
+      state.refTarget = ''
+      if (!file || !character) return
+
+      if (!/^image\/(png|jpeg|webp)$/i.test(file.type)) {
+        showToast('参考图仅支持 PNG / JPEG / WebP', true)
+        return
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        showToast('参考图不能超过 8 MB', true)
+        return
+      }
+
+      state.refUploading = character
+      showToast(`正在上传「${character}」的面部参考图…`)
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        const result = await uploadReferenceImage({ name: character, dataUrl })
+        if (!result?.path) throw new Error('上传接口没有返回图片路径')
+        setCharacterReference(character, result.path)
+        persistSoon()
+        showToast(`已设置「${character}」的面部参考图，之后生成的该角色状态都会参考它`)
+      } catch (error) {
+        showToast(`参考图上传失败：${error.message || '请稍后重试'}`, true)
+      } finally {
+        state.refUploading = ''
+        renderTable('role')
+      }
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('读取图片失败'))
+        reader.readAsDataURL(file)
+      })
+    }
+
+    function clearReference(character) {
+      if (!character) return
+      if (!window.confirm(`清除「${character}」的面部参考图？\n清除后该角色的各状态不再保证同一张脸。`)) return
+      setCharacterReference(character, '')
+      persistSoon()
+      renderTable('role')
+      showToast(`已清除「${character}」的面部参考图`)
+    }
+
+    /** 分页以组为单位切分，同一角色的状态不会被拆到两页。 */
+    function paginateGroups(type) {
+      const pages = []
+      let current = []
+      let count = 0
+
+      buildAssetGroups(type).forEach(group => {
+        if (current.length && count + group.assets.length > state.pageSize) {
+          pages.push(current)
+          current = []
+          count = 0
+        }
+        current.push(group)
+        count += group.assets.length
+      })
+
+      if (current.length) pages.push(current)
+      return pages.length ? pages : [[]]
+    }
+
     function filteredAssets(type) {
       const query = state.search[type].trim().toLowerCase()
       const assets = state.assets.filter(asset => asset.type === type)
@@ -1912,9 +2763,9 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     function visibleAssets(type) {
-      const all = filteredAssets(type)
-      const start = (state.page[type] - 1) * state.pageSize
-      return all.slice(start, start + state.pageSize)
+      const pageList = paginateGroups(type)
+      const index = Math.min(Math.max(1, state.page[type]), Math.max(1, pageList.length))
+      return (pageList[index - 1] || []).flatMap(group => group.assets)
     }
 
     function selectVisible(type) {
@@ -1930,7 +2781,7 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     function applyBulkParams(type) {
-      if (!state.selected.size) {
+      if (!selectedIdsOf(type).length) {
         showToast('请先勾选资产', true)
         return
       }
@@ -1943,7 +2794,7 @@ import { requireLogin } from '../lib/guard.js'
 
       let changed = 0
       state.assets.forEach(asset => {
-        if (!state.selected.has(asset.id)) return
+        if (asset.type !== type || !state.selected.has(asset.id)) return
         asset.ratio = ratio
         if (styleId) asset.styleId = resolveAssetStyleId(asset, styleId)
         changed += 1
@@ -1971,17 +2822,39 @@ import { requireLogin } from '../lib/guard.js'
       startBatch(assets.map(asset => asset.id), `生成全部${TYPE_META[type].singular}`)
     }
 
+    /**
+     * 勾选状态跨类型共用（切换页签不丢），所以展示和批量动作都要按类型过滤：
+     * 否则在场景页勾过的资产会让角色页的「所选」数字和标题上的资产数对不上。
+     */
+    function selectedIdsOf(type) {
+      if (!type) return []
+      const ids = []
+      state.selected.forEach(id => {
+        const asset = findAsset(id)
+        if (asset && asset.type === type) ids.push(id)
+      })
+      return ids
+    }
+
     function refreshSelectionLabels() {
-      const selectedCount = state.selected.size
-      document.querySelectorAll('[data-generate-selected]').forEach(button => {
-        button.disabled = selectedCount === 0 || state.processing
-        button.textContent = selectedCount ? `批量生成所选 (${selectedCount})` : '批量生成所选'
-      })
-      document.querySelectorAll('[data-generate-type]').forEach(button => {
-        button.disabled = state.processing
-      })
-      document.querySelectorAll('[data-selected-inline]').forEach(label => {
-        label.textContent = selectedCount ? `(${selectedCount})` : ''
+      document.querySelectorAll('[data-panel]').forEach(panel => {
+        const type = panel.dataset.panel
+        if (!type || !TYPE_META[type]) return
+        const selectedCount = selectedIdsOf(type).length
+        panel.querySelectorAll('[data-generate-selected]').forEach(button => {
+          button.disabled = selectedCount === 0 || state.processing
+          button.textContent = selectedCount ? `批量生成所选 (${selectedCount})` : '批量生成所选'
+        })
+        panel.querySelectorAll('[data-generate-type]').forEach(button => {
+          button.disabled = state.processing
+        })
+        panel.querySelectorAll('[data-download-selected]').forEach(button => {
+          button.disabled = selectedCount === 0
+          button.textContent = selectedCount ? `批量下载所选 (${selectedCount})` : '批量下载所选'
+        })
+        panel.querySelectorAll('[data-selected-inline]').forEach(label => {
+          label.textContent = selectedCount ? `(${selectedCount})` : ''
+        })
       })
     }
 
@@ -2017,53 +2890,70 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     async function processQueue() {
-      while (state.queue.length && !state.stopRequested) {
-        const id = state.queue.shift()
-        const asset = findAsset(id)
-        if (!asset) continue
+      // 并行度：默认 5；服务端 IMAGE_CONCURRENCY 是硬上限
+      const workers = Math.max(1, Math.min(concurrencyLimit(), state.concurrency || 5, state.queue.length || 1))
 
-        asset.status = 'generating'
-        asset.error = ''
-        startAssetProgress(asset)
-        renderQueuePanel()
-        refreshCurrentTable()
-        renderAssetModalState()
+      const runWorker = async () => {
+        while (state.queue.length && !state.stopRequested) {
+          const id = state.queue.shift()
+          const asset = findAsset(id)
+          if (!asset) continue
 
-        try {
-          const result = await generateImage({
-            prompt: composeGenerationPrompt(asset),
-            ratio: asset.ratio,
-            category: TYPE_META[asset.type].singular,
-            name: asset.name,
-            source: 'batch',
-          })
-          if (!result?.imageUrl) {
-            throw new Error('接口没有返回图片地址')
+          asset.status = 'generating'
+          asset.error = ''
+          startAssetProgress(asset)
+          renderQueuePanel()
+          refreshCurrentTable()
+          renderAssetModalState()
+
+          try {
+            const result = await generateImage({
+              prompt: composeGenerationPrompt(asset),
+              ratio: asset.ratio,
+              category: TYPE_META[asset.type].singular,
+              name: asset.name,
+              source: 'batch',
+              referencePath: referenceForAsset(asset) || undefined,
+            })
+            if (!result?.imageUrl) {
+              throw new Error('接口没有返回图片地址')
+            }
+
+            const finishedAt = new Date().toISOString()
+            pushAssetHistory(asset, {
+              url: result.imageUrl,
+              w: result.width || 0,
+              h: result.height || 0,
+              at: finishedAt,
+            })
+            asset.resultUrl = result.imageUrl
+            asset.primaryUrl = result.imageUrl
+            asset.width = result.width || 0
+            asset.height = result.height || 0
+            asset.status = 'done'
+            asset.progress = 100
+            asset.progressStage = '已完成'
+            asset.updatedAt = finishedAt
+          } catch (error) {
+            asset.status = 'error'
+            asset.progress = 0
+            asset.progressStage = '生成失败'
+            asset.error = error.message || '生成失败'
+            asset.updatedAt = new Date().toISOString()
           }
 
-          asset.resultUrl = result.imageUrl
-          asset.width = result.width || 0
-          asset.height = result.height || 0
-          asset.status = 'done'
-          asset.progress = 100
-          asset.progressStage = '已完成'
-          asset.updatedAt = new Date().toISOString()
-        } catch (error) {
-          asset.status = 'error'
-          asset.progress = 0
-          asset.progressStage = '生成失败'
-          asset.error = error.message || '生成失败'
-          asset.updatedAt = new Date().toISOString()
+          stopAssetProgress(asset.id)
+          state.queueDone += 1
+          persistSoon()
+          renderQueuePanel()
+          refreshCurrentTable()
+          renderAssetModalState()
+          // 给界面一点时间刷新，避免同账号连续请求过密
+          if (workers === 1) await sleep(250)
         }
-
-        stopAssetProgress(asset.id)
-        state.queueDone += 1
-        persistSoon()
-        renderQueuePanel()
-        refreshCurrentTable()
-        renderAssetModalState()
-        await sleep(250)
       }
+
+      await Promise.all(Array.from({ length: workers }, runWorker))
 
       if (state.stopRequested) {
         state.queue.forEach(id => {
@@ -2094,11 +2984,20 @@ import { requireLogin } from '../lib/guard.js'
       }
     }
 
+    /** 服务端当前允许的最大并行数（控制台可调，最多 8；取不到时按 1 处理） */
+    function concurrencyLimit() {
+      const limit = Number(serverConfig?.imageConcurrency)
+      return Number.isFinite(limit) && limit >= 1 ? Math.min(8, Math.floor(limit)) : 1
+    }
+
     function stopQueue() {
       if (!state.processing) return
       state.stopRequested = true
       dom.stopQueue.disabled = true
-      showToast('将在当前图片完成后停止后续任务')
+      const running = state.assets.filter(asset => asset.status === 'generating').length
+      showToast(running > 1
+        ? `将在 ${running} 张在途图片完成后停止后续任务`
+        : '将在当前图片完成后停止后续任务')
       renderQueuePanel()
     }
 
@@ -2107,7 +3006,7 @@ import { requireLogin } from '../lib/guard.js'
       dom.queuePanel.hidden = !visible
       if (!visible) return
 
-      const active = state.assets.find(asset => asset.status === 'generating')
+      const actives = state.assets.filter(asset => asset.status === 'generating')
       const finished = state.queueDone
       const total = state.queueTotal
       const percent = total ? Math.round((finished / total) * 100) : 0
@@ -2115,8 +3014,8 @@ import { requireLogin } from '../lib/guard.js'
 
       dom.queueTitle.textContent = state.batchLabel || '批量任务'
       dom.queueDetail.textContent = state.processing
-        ? active
-          ? `正在生成：${active.name} · ${active.ratio} · ${active.progressStage || '生成中'} ${Math.round(active.progress || 0)}%`
+        ? actives.length
+          ? `${actives.length > 1 ? `并行 ${actives.length} 张：` : '正在生成：'}${actives.slice(0, 3).map(asset => `${asset.name} ${Math.round(asset.progress || 0)}%`).join('、')}${actives.length > 3 ? '…' : ''}`
           : '准备下一项'
         : state.stopRequested
           ? `已停止 · ${finished} 项已处理`
@@ -2229,6 +3128,7 @@ import { requireLogin } from '../lib/guard.js'
       dom.modal.classList.add('visible')
       document.body.style.overflow = 'hidden'
       renderAssetModalState()
+      hydrateAssetHistory(asset).catch(error => console.warn('无法回填历史生成图', error))
       dom.modalPrompt.focus()
     }
 
@@ -2249,9 +3149,12 @@ import { requireLogin } from '../lib/guard.js'
       dom.modalGenerate.disabled = state.processing
       dom.modalGenerate.textContent = state.processing ? '队列运行中…' : '生成这张资产图'
 
-      if (asset.resultUrl) {
-        dom.modalResultThumb.innerHTML = `<img src="${escapeAttr(asset.resultUrl)}" alt="${escapeAttr(asset.name)} 生成结果">`
-        dom.modalResultText.innerHTML = `<strong>${statusPill(asset.status)}</strong>${asset.width && asset.height ? `${asset.width} × ${asset.height} · ` : ''}${asset.updatedAt ? formatDateTime(asset.updatedAt) : ''}`
+      const primary = primaryImageOf(asset)
+      const entry = primary ? primaryEntry(asset) : null
+
+      if (primary) {
+        dom.modalResultThumb.innerHTML = `<img src="${escapeAttr(primary)}" alt="${escapeAttr(asset.name)} 主要图片">`
+        dom.modalResultText.innerHTML = `<strong>${statusPill(asset.status)} 主要图片</strong>${entry.w && entry.h ? `${entry.w} × ${entry.h} · ` : ''}${entry.at ? formatDateTime(entry.at) : ''}`
       } else if (asset.status === 'error') {
         dom.modalResultThumb.textContent = '失败'
         dom.modalResultText.innerHTML = `<strong><span class="status-pill error">失败</span></strong>${escapeHtml(asset.error || '生成失败')}`
@@ -2269,6 +3172,8 @@ import { requireLogin } from '../lib/guard.js'
         dom.modalResultThumb.textContent = '暂无图片'
         dom.modalResultText.innerHTML = `<strong>${statusPill(asset.status)}</strong>选择参数后点击生成，结果会与这条资产关联。`
       }
+
+      renderModalHistory(asset)
     }
 
     function openLightbox(url, label) {
@@ -2286,18 +3191,53 @@ import { requireLogin } from '../lib/guard.js'
     }
 
     function assetFilename(asset) {
-      return `${asset.name}-${asset.width || ''}${asset.width ? 'x' : ''}${asset.height || ''}-${timestamp()}.${getImageExtension(asset.resultUrl)}`
+      const entry = primaryEntry(asset)
+      const size = entry.w && entry.h ? `${entry.w}x${entry.h}` : ''
+      return `${[asset.name, size, timestamp()].filter(Boolean).join('-')}.${getImageExtension(primaryImageOf(asset))}`
         .replace(/-+/g, '-')
     }
 
-    function downloadImage(url, filename) {
+    /** 批量下载用的文件名：显式标注“主图” */
+    function primaryFilename(asset) {
+      const entry = primaryEntry(asset)
+      const size = entry.w && entry.h ? `${entry.w}x${entry.h}` : ''
+      const stem = [asset.name, '主图', size, timestamp()].filter(Boolean).join('-')
+      return `${stem}.${getImageExtension(primaryImageOf(asset))}`.replace(/-+/g, '-')
+    }
+
+    function downloadImage(url, filename, options = {}) {
       const link = document.createElement('a')
       link.href = url
       link.download = filename
       document.body.append(link)
       link.click()
       link.remove()
-      showToast(`下载已开始：${filename}`)
+      if (!options.silent) showToast(`下载已开始：${filename}`)
+    }
+
+    /** 批量下载所选资产的主图（只下当前类型，没有图的跳过） */
+    function downloadSelectedAssets(type) {
+      const selected = selectedIdsOf(type).map(findAsset).filter(Boolean)
+      const ready = selected
+        .map(asset => ({ asset, url: primaryImageOf(asset) }))
+        .filter(item => item.url)
+
+      if (!ready.length) {
+        showToast(selected.length ? '所选资产还没有生成图片' : '请先勾选资产', true)
+        return
+      }
+
+      const missing = selected.length - ready.length
+      if (!window.confirm(`将下载 ${ready.length} 张主要图片${missing ? `（另有 ${missing} 项还没有图片）` : ''}，继续吗？`)) {
+        return
+      }
+
+      ready.forEach((item, index) => {
+        window.setTimeout(() => {
+          downloadImage(item.url, primaryFilename(item.asset), { silent: true })
+        }, index * 300)
+      })
+      showToast(`开始下载 ${ready.length} 张主要图片，浏览器可能询问是否允许下载多个文件`)
     }
 
     function countType(type) {

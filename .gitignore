@@ -20,6 +20,9 @@ data/
 # 本地工具产物（钩子状态、扫描报告等）
 .mimosa/
 
+# 桌面端打包产物
+release/
+
 # 重构前的旧版单文件实现，无人引用
 legacy-single-file/
 

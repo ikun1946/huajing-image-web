@@ -104,6 +104,12 @@ export const config = {
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
   magpieBaseUrl: (process.env.MAGPIE_BASE_URL || 'http://127.0.0.1:3425').replace(/\/+$/, ''),
   imageModel: process.env.MAGPIE_IMAGE_MODEL || 'codex/gpt-image-2',
+  /**
+   * 同时打向 Magpie 的生图请求上限（1–8）。
+   * 服务端控制台保存过 data/concurrency.json 时以文件为准；这里只是文件缺失时的默认值，
+   * 前端并行数不会超过当前上限。
+   */
+  imageConcurrency: Math.min(Math.max(intFromEnv('IMAGE_CONCURRENCY', 5), 1), 8),
   requestTimeoutMs: intFromEnv('IMAGE_TIMEOUT_MS', 300000),
   maxPromptLength: intFromEnv('MAX_PROMPT_LENGTH', 12000),
   storageDir: process.env.STORAGE_DIR || '',
@@ -111,10 +117,18 @@ export const config = {
   userDatabasePath: process.env.USER_DATABASE_PATH || '',
   usageDatabasePath: process.env.USAGE_DATABASE_PATH || '',
   projectDatabasePath: process.env.PROJECT_DATABASE_PATH || '',
-  /** 会话签名密钥；留空则每次启动随机生成（重启后需重新登录） */
+  /** 流量/限流/额度这些运行期数据的目录；留空用 <项目根>/data */
+  dataDir: process.env.DATA_DIR || '',
+  /** 按天日志的目录；留空用 <项目根>/logs */
+  logDir: process.env.LOG_DIR || '',
+  /** 前端构建产物目录；留空用 <项目根>/web/dist */
+  webDistDir: process.env.WEB_DIST_DIR || '',
+  /** 会话签名密钥；留空则每次启动随机生成（会话令牌落盘，登录状态不受影响） */
   sessionSecret: process.env.SESSION_SECRET || '',
   /** 引导创建首个管理员的管理密钥；留空则禁用引导接口 */
   adminSetupKey: process.env.ADMIN_SETUP_KEY || '',
+  /** 优雅退出令牌；留空则关闭 /api/shutdown 接口（桌面端/控制台会注入随机值） */
+  shutdownToken: process.env.SHUTDOWN_TOKEN || '',
   corsOrigins: listFromEnv('CORS_ORIGINS', [
     'http://localhost:5173',
     'http://127.0.0.1:5173',

@@ -50,6 +50,13 @@ export function toPublicUser(record: UserRecord): PublicUser {
   }
 }
 
+class DisplayNameTakenError extends Error {
+  constructor() {
+    super('这个名称已被使用，换一个试试')
+    this.name = 'DisplayNameTakenError'
+  }
+}
+
 export class UserStore {
   private readonly file: string
   private cache: UserDatabase | null = null
@@ -143,6 +150,9 @@ export class UserStore {
     if (database.users.some(user => user.username.toLowerCase() === username.toLowerCase())) {
       throw new Error('用户名已存在')
     }
+    if (input.displayName.trim()) {
+      this.assertDisplayNameFree(database, input.displayName, '')
+    }
 
     const { salt, hash } = await hashPassword(input.password)
     const record: UserRecord = {
@@ -178,6 +188,9 @@ export class UserStore {
     if (!username) throw new Error('用户名不能为空')
     if (database.users.some(user => user.username.toLowerCase() === username.toLowerCase())) {
       throw new Error('这个用户名已被使用，换一个试试')
+    }
+    if (input.displayName.trim()) {
+      this.assertDisplayNameFree(database, input.displayName, '')
     }
 
     const { salt, hash } = await hashPassword(input.password)
@@ -239,11 +252,28 @@ export class UserStore {
     return record
   }
 
+  /** 显示名唯一：去掉首尾空格后大小写不敏感地比对，pending 的申请也占名 */
+  private assertDisplayNameFree(
+    database: UserDatabase,
+    displayName: string,
+    exceptId: string,
+  ): void {
+    const target = displayName.trim().toLowerCase()
+    if (!target) return
+    const taken = database.users.some(
+      user => user.id !== exceptId && user.displayName.trim().toLowerCase() === target,
+    )
+    if (taken) throw new DisplayNameTakenError()
+  }
+
   async setDisplayName(id: string, displayName: string): Promise<UserRecord | undefined> {
     const database = await this.read()
     const record = database.users.find(user => user.id === id)
     if (!record) return undefined
-    record.displayName = displayName.trim() || record.username
+
+    const next = displayName.trim() || record.username
+    this.assertDisplayNameFree(database, next, record.id)
+    record.displayName = next
     await this.write(database)
     return record
   }

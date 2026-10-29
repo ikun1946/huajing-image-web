@@ -17,6 +17,12 @@ export interface ProjectAsset {
   height: number
   error: string
   updatedAt: string
+  /** 角色面部参考图：存储目录里的相对路径（参考图/<文件名>） */
+  referencePath?: string
+  /** 历史生成图（新→旧，最多 20 条） */
+  history?: Array<{ url: string; w?: number; h?: number; at?: string }>
+  /** 主要图片：批量下载与表格缩略图都用它 */
+  primaryUrl?: string
 }
 
 export interface ProjectStyles {

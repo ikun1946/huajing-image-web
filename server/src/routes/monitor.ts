@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import os from 'node:os'
+import { ApiError } from '../lib/errors.js'
 import { requireAdmin } from './auth.js'
+import type { ConcurrencyStore } from '../services/concurrency-store.js'
 import type { RateLimiter } from '../services/rate-limiter.js'
 import type { TrafficStore } from '../services/traffic-store.js'
 import type { SerialGate } from '../lib/serial-gate.js'
@@ -12,6 +14,7 @@ export function registerMonitorRoutes(
     rateLimiter: RateLimiter
     processStartedAt: number
     gate: SerialGate
+    concurrency: ConcurrencyStore
   },
 ): void {
   // 管理端监控总览：流量、运行时间、限流状态
@@ -41,6 +44,8 @@ export function registerMonitorRoutes(
       rateLimit: deps.rateLimiter.status(),
       queue: {
         busy: deps.gate.isBusy,
+        active: deps.gate.activeCount,
+        limit: deps.gate.limitCount,
         waiting: deps.gate.queueLength,
       },
     }
@@ -68,6 +73,35 @@ export function registerMonitorRoutes(
 
     return reply.send({ config })
   })
+
+  /** 生图并发上限：读取 + 运行时调整（改完立即生效，并写入 concurrency.json） */
+  app.get('/api/admin/concurrency', async request => {
+    requireAdmin(request)
+    return concurrencyStatus(deps)
+  })
+
+  app.put('/api/admin/concurrency', async (request, reply) => {
+    requireAdmin(request)
+    const body = (request.body ?? {}) as { limit?: unknown }
+    const limit = Number(body.limit)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 8) {
+      throw new ApiError('CONCURRENCY_INVALID', '并发上限必须是 1–8 之间的整数', 400)
+    }
+
+    const saved = await deps.concurrency.set(limit)
+    deps.gate.setLimit(saved)
+    request.log.info({ limit: saved }, '生图并发上限已调整')
+    return reply.send(concurrencyStatus(deps))
+  })
+}
+
+function concurrencyStatus(deps: { gate: SerialGate; concurrency: ConcurrencyStore }) {
+  return {
+    limit: deps.gate.limitCount,
+    active: deps.gate.activeCount,
+    waiting: deps.gate.queueLength,
+    persisted: deps.concurrency.get(),
+  }
 }
 
 function formatUptime(ms: number): string {

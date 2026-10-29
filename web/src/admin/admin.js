@@ -9,6 +9,9 @@ import {
   updateAdminUser,
 } from '../lib/api.js'
 import { escapeHtml, formatDateTime } from '../lib/dom.js'
+import { setupAvatarMenu } from '../lib/avatar-menu.js'
+
+setupAvatarMenu()
 
 const dom = {
   adminUser: document.querySelector('#admin-user'),
@@ -72,16 +75,6 @@ async function init() {
 dom.logoutButton.addEventListener('click', async () => {
   await logout().catch(() => {})
   window.location.replace('/login.html')
-})
-
-// 点击头像也能开合菜单，触屏设备友好
-dom.avatar?.addEventListener('click', event => {
-  event.stopPropagation()
-  dom.avatar.classList.toggle('is-open')
-})
-
-document.addEventListener('click', () => {
-  dom.avatar?.classList.remove('is-open')
 })
 
 dom.refreshButton.addEventListener('click', async () => {

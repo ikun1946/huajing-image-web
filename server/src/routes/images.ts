@@ -4,9 +4,9 @@ import { config, findRatio } from '../config.js'
 import { ApiError } from '../lib/errors.js'
 import type { SerialGate } from '../lib/serial-gate.js'
 import { buildFileUrl } from '../lib/url.js'
-import { requestImage } from '../services/magpie.js'
+import { requestImage, requestImageEdit, type ReferenceImage } from '../services/magpie.js'
 import { detectImageType, readImageSize } from '../services/imaging.js'
-import type { ImageStorage } from '../services/storage.js'
+import { REFERENCE_CATEGORY, type ImageStorage } from '../services/storage.js'
 import type { QuotaStore } from '../services/quota-store.js'
 import type { UsageStore } from '../services/usage-store.js'
 import { requireAuth } from './auth.js'
@@ -44,6 +44,8 @@ interface GenerateBody {
   source?: unknown
   /** 客户端生成的任务 id，刷新后据此恢复；不传则服务端生成 */
   jobId?: unknown
+  /** 角色面部参考图：存储目录里的相对路径，必须以「参考图/」开头 */
+  referencePath?: unknown
 }
 
 export function registerImageRoutes(
@@ -58,6 +60,23 @@ export function registerImageRoutes(
   const jobs = new Map<string, GenerationJob>()
   const JOB_TTL_MS = 30 * 60 * 1000
   const JOB_LIMIT = 100
+
+  /**
+   * 每个账号在途的生图请求数（已通过额度检查、还没写入 usage 的数量）。
+   * 并行生成时用「今日已用 + 在途」判断额度，避免多张同时通过检查导致超发。
+   */
+  const inflight = new Map<string, number>()
+
+  /** 在途名额 +1 / -1，返还在 finally 里做，失败也不会漏掉。 */
+  function holdSlot(userId: string): void {
+    inflight.set(userId, (inflight.get(userId) ?? 0) + 1)
+  }
+
+  function releaseSlot(userId: string): void {
+    const left = (inflight.get(userId) ?? 1) - 1
+    if (left > 0) inflight.set(userId, left)
+    else inflight.delete(userId)
+  }
 
   function pruneJobs(): void {
     const now = Date.now()
@@ -115,6 +134,17 @@ export function registerImageRoutes(
       throw new ApiError('RATIO_INVALID', '请选择有效的图片比例')
     }
 
+    // 面部参考图：只接受上传接口产出的「参考图/」路径，防止拿任意文件当输入
+    const referencePath = typeof body.referencePath === 'string' ? body.referencePath.trim() : ''
+    if (
+      referencePath &&
+      (!referencePath.startsWith(`${REFERENCE_CATEGORY}/`) ||
+        referencePath.length > 300 ||
+        referencePath.includes('..'))
+    ) {
+      throw new ApiError('REFERENCE_INVALID', '参考图地址无效', 400)
+    }
+
     // 任务 id：客户端可预先提供（刷新后靠它回来取结果），否则服务端生成
     const jobId =
       typeof body.jobId === 'string' && UUID_PATTERN.test(body.jobId)
@@ -129,27 +159,42 @@ export function registerImageRoutes(
     const quota = deps.quotas.get(auth.userId)
     if (quota.dailyLimit > 0) {
       const usedToday = await deps.usage.countToday(auth.userId)
-      if (usedToday >= quota.dailyLimit) {
+      const pending = inflight.get(auth.userId) ?? 0
+      const used = usedToday + pending
+      if (used >= quota.dailyLimit) {
         throw new ApiError(
           'QUOTA_EXCEEDED',
-          `今日生图额度已用完（${usedToday}/${quota.dailyLimit} 张），明天再来或联系管理员调整额度`,
+          `今日生图额度已用完（${used}/${quota.dailyLimit} 张${pending ? `，其中 ${pending} 张正在生成` : ''}），明天再来或联系管理员调整额度`,
           429,
         )
       }
     }
 
-    // 串行闸门：同一时刻只允许一个生图请求打向 Magpie
+    // 预约一个在途名额：并行请求按「已用 + 在途」判断，不会同时超发
+    holdSlot(auth.userId)
+
+    // 生图闸门：最多同时放行 IMAGE_CONCURRENCY 个请求打向 Magpie
     const startedAt = Date.now()
     try {
     const generated = await deps.gate.run(async () => {
-      const upstream = await requestImage(
-        {
-          baseUrl: config.magpieBaseUrl,
-          model: config.imageModel,
-          timeoutMs: config.requestTimeoutMs,
-        },
-        { prompt, ratioHint: ratio.promptHint },
-      )
+      const reference = await loadReference(referencePath, deps.storage)
+      const upstream = reference
+        ? await requestImageEdit(
+          {
+            baseUrl: config.magpieBaseUrl,
+            model: config.imageModel,
+            timeoutMs: config.requestTimeoutMs,
+          },
+          { prompt, ratioHint: ratio.promptHint, image: reference },
+        )
+        : await requestImage(
+          {
+            baseUrl: config.magpieBaseUrl,
+            model: config.imageModel,
+            timeoutMs: config.requestTimeoutMs,
+          },
+          { prompt, ratioHint: ratio.promptHint },
+        )
 
       let type
       try {
@@ -227,6 +272,42 @@ export function registerImageRoutes(
         code: error instanceof ApiError ? error.code : 'INTERNAL_ERROR',
       }
       throw error
+    } finally {
+      // 成功/失败都归还在途名额，额度判断才能保持准确
+      releaseSlot(auth.userId)
     }
   })
+}
+
+/**
+ * 读取角色面部参考图。
+ * 路径已在路由里限定为「参考图/」开头；这里再挡一次目录穿越，
+ * 并把「文件没了」翻译成用户能处理的提示，而不是静默退回纯文本生成。
+ */
+async function loadReference(
+  referencePath: string,
+  storage: ImageStorage,
+): Promise<ReferenceImage | undefined> {
+  if (!referencePath) return undefined
+
+  let buffer: Buffer
+  try {
+    buffer = await storage.resolve(referencePath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new ApiError('IMAGE_REFERENCE_MISSING', '参考图不存在，请重新上传', 400)
+    }
+    throw error
+  }
+
+  try {
+    const type = detectImageType(buffer)
+    return {
+      buffer,
+      mimeType: type.mimeType,
+      filename: referencePath.split('/').pop() || 'reference.png',
+    }
+  } catch {
+    throw new ApiError('IMAGE_REFERENCE_MISSING', '参考图不是有效图片，请重新上传', 400)
+  }
 }

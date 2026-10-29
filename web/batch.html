@@ -13,11 +13,15 @@
   <div class="app">
     <header class="masthead">
       <div class="brand">
-        <div class="brand-text">
-          <h1>画境 · 资产批量</h1>
-          <p class="brand-sub">导入资产表逐项生图，或在自由创作里直接写提示词</p>
-        </div>
         <div class="brand-mark" aria-hidden="true">境</div>
+        <div class="brand-text">
+          <div class="brand-title-line">
+            <h1>画境</h1>
+            <span class="brand-divider" aria-hidden="true"></span>
+            <span class="brand-workspace">资产创作工作台</span>
+          </div>
+          <p class="brand-sub">管理资产、统一风格，让每一幅画面清晰落地</p>
+        </div>
       </div>
 
       <div class="header-actions">
@@ -46,6 +50,13 @@
               </svg>
               <span>生成记录</span>
             </button>
+            <button class="history-entry" id="rename-button" type="button" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 20h4l10-10-4-4L4 16v4Z"></path>
+                <path d="m13.5 6.5 4 4"></path>
+              </svg>
+              <span>修改名称</span>
+            </button>
             <button class="logout-button" id="logout-button" type="button" role="menuitem">退出登录</button>
           </div>
         </div>
@@ -69,10 +80,16 @@
 
     <main>
       <input id="file-input" type="file" accept=".json,application/json" hidden>
+      <input id="ref-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <input id="style-import" type="file" accept=".json,application/json" hidden>
 
       <div class="dataset-bar" id="dataset-bar" hidden>
         <div class="dataset-info">
-          <div class="dataset-icon" aria-hidden="true">{ }</div>
+          <div class="dataset-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            </svg>
+          </div>
           <div style="min-width:0">
             <p class="dataset-name" id="dataset-name">未导入文件</p>
             <p class="dataset-meta" id="dataset-meta">导入资产 JSON 后开始批量生成</p>
@@ -223,8 +240,15 @@
 
           <article class="free-preview" id="free-preview">
             <div class="preview-placeholder">
-              <div class="preview-placeholder-mark" aria-hidden="true">□</div>
-              生成的画面<br>将在这里浮现
+              <div class="preview-placeholder-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <path d="m4 17 5-5 4 4 2-2 5 5"></path>
+                </svg>
+              </div>
+              <strong>你的创作画布</strong>
+              <span>输入提示词并生成，画面将在这里呈现</span>
             </div>
             <div class="image-tools">
               <button class="glass-button" id="free-download" type="button" disabled>
@@ -284,7 +308,8 @@
           <dl id="modal-fields"></dl>
         </aside>
 
-        <section class="prompt-editor">
+        <section class="asset-prompt-editor">
+          <!-- 不要用 .prompt-editor：那是 prompt-tools.css 里最大化编辑器的浮层类名，会把它隐藏 -->
           <h4>生图提示词</h4>
           <textarea class="textarea" id="modal-prompt" maxlength="4000" aria-label="资产生图提示词"></textarea>
           <div class="prompt-meta">
@@ -321,6 +346,14 @@
               选择参数后点击生成，结果会与这条资产关联。
             </div>
           </div>
+
+          <section class="asset-history" id="modal-history" hidden>
+            <div class="asset-history-head">
+              <h4>历史生成</h4>
+              <span class="asset-kind" id="modal-history-hint"></span>
+            </div>
+            <div class="asset-history-grid" id="modal-history-grid"></div>
+          </section>
         </section>
       </div>
     </div>
@@ -348,6 +381,31 @@
       <button class="button secondary" id="projects-import" type="button">导入 JSON 新建项目</button>
     </div>
   </aside>
+
+  <div class="modal" id="rename-modal" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+    <div class="modal-sheet narrow">
+      <header class="modal-head">
+        <div>
+          <p class="modal-kicker">账号</p>
+          <h3 id="rename-title">修改名称</h3>
+        </div>
+        <button class="button secondary modal-close" id="rename-close" type="button">关闭</button>
+      </header>
+      <div class="modal-body narrow-body">
+        <form class="rename-form" id="rename-form">
+          <label class="field-label" for="rename-input">显示名称</label>
+          <input class="input" id="rename-input" type="text" maxlength="24" autocomplete="off"
+                 aria-describedby="rename-hint">
+          <p class="rename-hint" id="rename-hint">登录用的用户名不变，只改这里显示的名称；不能与其他账号重名，最多 24 个字。</p>
+          <p class="rename-msg" id="rename-msg" role="alert"></p>
+          <div class="modal-actions">
+            <button class="button primary" id="rename-save" type="submit">保存</button>
+            <button class="button secondary" id="rename-cancel" type="button">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

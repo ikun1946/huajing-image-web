@@ -180,3 +180,67 @@
 .prompt-editor-done:hover {
   background: #37503f;
 }
+
+.prompt-editor-card {
+  border-color: var(--line, rgba(32, 39, 34, 0.14));
+  background: var(--surface-solid, #fcfbf7);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.prompt-editor-close {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line, rgba(32, 39, 34, 0.14));
+}
+
+.prompt-editor-text {
+  border-radius: 12px;
+  background: var(--surface-raised, #ffffff);
+}
+
+.prompt-editor-text:focus {
+  border-color: var(--moss, #365445);
+  box-shadow: 0 0 0 3px rgba(54, 84, 69, 0.1);
+}
+
+.prompt-editor-done {
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+}
+
+@media (max-width: 680px) {
+  .prompt-editor {
+    padding: 12px;
+  }
+
+  .prompt-editor-card {
+    height: min(620px, 100%);
+    padding: 16px;
+    border-radius: 16px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .prompt-editor-card {
+    background: var(--surface-solid, #1c211d);
+  }
+
+  .prompt-editor-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .prompt-editor-text {
+    background: var(--surface-raised, #242a25);
+  }
+
+  .prompt-editor-done {
+    background: #b96041;
+  }
+
+  .prompt-editor-done:hover {
+    background: #ca7050;
+  }
+}

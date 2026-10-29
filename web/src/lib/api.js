@@ -34,10 +34,10 @@ export async function request(path, options = {}) {
   return payload
 }
 
-export function generateImage({ prompt, ratio, category, name, source, jobId }) {
+export function generateImage({ prompt, ratio, category, name, source, jobId, referencePath }) {
   return request('/api/images', {
     method: 'POST',
-    body: JSON.stringify({ prompt, ratio, category, name, source, jobId }),
+    body: JSON.stringify({ prompt, ratio, category, name, source, jobId, referencePath }),
   })
 }
 
@@ -71,6 +71,14 @@ export function login(username, password) {
   return request('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
+  })
+}
+
+/** 自助修改显示名（登录用的用户名不变） */
+export function updateMyProfile(payload) {
+  return request('/api/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   })
 }
 
@@ -143,6 +151,16 @@ export function deleteProject(id) {
 
 export function activateProject(id) {
   return request(`/api/projects/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+}
+
+// ---------- 角色面部参考图 ----------
+
+/** 上传角色面部参考图：dataUrl 为 data:image/(png|jpeg|webp);base64,... */
+export function uploadReferenceImage({ name, dataUrl }) {
+  return request('/api/reference-images', {
+    method: 'POST',
+    body: JSON.stringify({ name, dataUrl }),
+  })
 }
 
 // ---------- 生成记录 ----------

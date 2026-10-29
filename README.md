@@ -12,6 +12,7 @@ huajing-image-web/
 │   │   ├── config.ts          环境变量与画面比例定义（唯一来源）
 │   │   ├── routes/
 │   │   │   ├── images.ts      POST /api/images
+│   │   │   ├── uploads.ts     POST /api/reference-images（角色面部参考图）
 │   │   │   ├── files.ts       GET  /api/files/*
 │   │   │   ├── meta.ts        GET  /api/config、/api/health
 │   │   │   ├── auth.ts        登录、登入、当前用户、首次引导
@@ -29,7 +30,7 @@ huajing-image-web/
 │   │   │   └── style-library.ts 风格库（每账号一份）
 │   │   └── lib/
 │   │       ├── errors.ts      统一错误码
-│   │       ├── serial-gate.ts 全局串行闸门
+│   │       ├── serial-gate.ts 生图闸门（并发数可配置）
 │   │       ├── session.ts     会话表
 │   │       ├── filename.ts    文件名合法性校验
 │   │       ├── url.ts         图片 URL 构建（按请求 Host 推断）
@@ -42,6 +43,8 @@ huajing-image-web/
 │   ├── admin.html             后台管理页
 │   ├── src/
 │   │   ├── lib/               api.js / config.js / dom.js / guard.js / history-panel.js / prompt-tools.css
+│   │   │   ├── asset-groups.js 角色/场景分组（同一主体的不同状态/区域）
+│   │   │   ├── style-transfer.js 风格库 JSON 导出与导入合并
 │   │   │   └── history-panel.css  生成记录面板样式（多页面共用）
 │   │   ├── batch/             批量工作台 + 自由创作 CSS + JS
 │   │   ├── login/             登录页 CSS + JS（自带令牌，不依赖后台页样式）
@@ -55,7 +58,7 @@ huajing-image-web/
 ├── usage.json                 生图统计与生成记录
 ├── styles/                    风格库目录（每个账号一份 <userId>.json）
 ├── logs/                      后端运行日志（按天 YYYY-MM-DD.log）
-├── data/                      监控数据（traffic.json 流量、rate-limit.json 限流、quotas.json 额度）
+├── data/                      监控数据（traffic.json 流量、rate-limit.json 限流、quotas.json 额度、concurrency.json 并发上限）
 └── generated/                 生成的图片（按资产类型分文件夹）
     ├── 角色/                   角色资产图，文件名为资产名
     ├── 场景/                   场景资产图
@@ -65,6 +68,65 @@ huajing-image-web/
 ```
 
 ## 启动
+
+### 桌面端（Windows 应用，推荐给非开发者）
+
+```powershell
+npm install            # 首次：装 electron / electron-builder
+npm run desktop:dev    # 开发模式直接跑起来
+npm run desktop:build  # 出安装包 + 便携版，产物在 release/
+```
+
+- **形态**：Electron 外壳，**只包服务端**——主窗口就是控制台页面（启停、运行时间、
+  流量、限流、日志、账号审核）。**客户端（8787 的工作台）不放进桌面端**，仍然在浏览器里用；
+  菜单/托盘里的「在浏览器打开客户端」会用系统默认浏览器打开，局域网其他设备照旧访问
+  控制台里显示的那个局域网地址。关窗收进托盘、服务继续跑，托盘「退出」才停服务
+- **桌面端的启停不需要登录**：菜单/托盘里的启动、停止、重启由主进程带着
+  `x-desktop-token`（每次启动随机生成、只注入给控制台子进程）直接调用，
+  不依赖控制台网页里的管理员会话；菜单里会显示「状态：运行中/已停止」，
+  已在运行时「启动服务」自动置灰。网页版控制台（浏览器打开 8790）的按钮
+  仍然要求先登录管理员——两条路径互不影响
+- **不依赖用户装 Node**：控制台与主服务都由 Electron 自带的 Node 以
+  `ELECTRON_RUN_AS_NODE=1` 启动；打包产物里 `resources/app-server/` 放着
+  `server/dist`、`server/node_modules`（仅运行期依赖）、`web/dist` 与
+  `scripts/control-panel.mjs`
+- **数据目录（绝不写安装目录）**：
+  - 安装版：`%APPDATA%\huajing\`（`config.env`、`users.json`、`usage.json`、
+    `projects.json`、`styles/`、`generated/`、`data/`、`logs/`）
+  - 便携版：exe 同目录的 `huajing-data\`，可随 U 盘搬走
+- **首次使用**：数据目录为空时，桌面端会用**浏览器**打开 `/login.html` 的「初始化画境」
+  页面，同时弹出管理密钥对话框（也已复制到剪贴板），粘贴后创建第一个管理员。
+  之后菜单/托盘里的「复制管理密钥」随时可以再取
+  （密钥保存在 `config.env` 的 `ADMIN_SETUP_KEY`，建好管理员后服务端会忽略它）
+- **配置**：改 `config.env`（`PORT`、`PANEL_PORT`、`MAGPIE_BASE_URL`、
+  `SESSION_SECRET`、`IMAGE_CONCURRENCY` 等）后重启应用生效；桌面端不读 `server/.env`
+- **端口占用**：启动时若 8790 已被别的控制台占用会直接弹窗说明并退出，
+  不会再拉一份服务起来
+- **退出是优雅的**：桌面端先调 `POST /api/panel/shutdown`，控制台再用
+  `SHUTDOWN_TOKEN` 调主服务的 `POST /api/shutdown`，补写流量数据、关掉日志流后才退出；
+  超时未退才 `taskkill` 兜底
+- 生成的 exe 未做代码签名，首次运行可能被 SmartScreen/杀软提示，属正常现象
+
+#### 打不开安装包构建时（本机环境相关）
+
+`electron-builder` 打包 Windows 目标时要下载 `winCodeSign` / `nsis` /
+`nsis-resources` 三个二进制。如果遇到下面两种情况，会卡在打包而不是代码问题：
+
+1. 无法访问 GitHub releases（国内网络常见）→ 设置镜像：
+   `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`
+2. `winCodeSign` 解压报 `Cannot create symbolic link`（没开 Windows 开发者模式 /
+   非管理员）→ 它只影响压缩包里的 macOS dylib 符号链接。做法：先用 7-Zip 把
+   `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\*.7z` 解到
+   `Cache\winCodeSign\winCodeSign-2.6.0\`（缺少的两个 `.dylib` 建成空文件即可），
+   再配合本地镜像目录（把 `nsis-3.0.4.1.7z`、`nsis-resources-3.4.1.7z` 一并放好）
+   用 `ELECTRON_BUILDER_BINARIES_MIRROR=http://127.0.0.1:<端口>/` 打包。
+
+只想先拿到可直接运行的目录（不生成安装包）时用 `npm run desktop:pack`，
+产物在 `release/win-unpacked/`。
+
+调试时设 `HUAJING_DATA_DIR=<目录>` 可以把数据根指到别处，避免动到真实的账号与图片；
+`HUAJING_DESKTOP_SMOKE=<毫秒>` 让应用启动后自动走一遍退出流程（可配
+`HUAJING_DESKTOP_SMOKE_ACTION=start|stop|restart` 顺带验证服务控制）。
 
 ### 服务控制台（推荐）
 
@@ -107,6 +169,14 @@ npm run panel
 - **流量监控**：总请求、发出/接收流量、按客户端 IP 的明细（数据落在 `data/traffic.json`，重启不丢）
 - **客户端限流**：开关 + 滑动窗口配置（如 60 秒内最多 60 个请求），超额返回 429；
   配置保存在 `data/rate-limit.json`，服务重启后仍生效
+- **生图并发**：运行时调整同时打向上游的请求上限（1–8），保存后**立即生效、无需重启**；
+  区块里显示当前上限、生成中与等待数。配置存在 `data/concurrency.json`，
+  优先级高于 `IMAGE_CONCURRENCY` 环境变量，服务重启后沿用
+- **上游 Magpie 地址**：服务控制区下方可直接改上游地址（默认 `http://127.0.0.1:3425`）。
+  「测试连通」会立刻去探该地址的 `/v1/models`（有 HTTP 响应就算可达，401 也算），
+  「保存并重启」把值写进 `<数据目录>/data/settings.json` 并重启主服务生效。
+  只接受 http/https、不接受地址里带账号密码；控制台保存的值优先于环境变量与默认值。
+  注意：重启会使控制台的登录会话失效，保存后需要重新登录
 - **运行日志**：按天写入 `logs/YYYY-MM-DD.log`，控制台里可直接翻看
 
 #### 控制台视觉规范
@@ -141,6 +211,11 @@ npm run panel
 - **响应式**：1440 / 390 两档无横向溢出；宽表格在自身容器内横向滚动
 - **运行时间**：前端本地 250ms 平滑走时，3 秒一次的轮询只做校准（偏差 >1.5 秒才对齐），
   数据源优先取主服务进程的真实 uptime，因此控制台重启后不会从 0 重算
+- **数据自动刷新**：客户端那边生完图，控制台不用手动刷新也会跟上——服务状态/运行时间/
+  流量/限流走 3 秒轮询；**生图统计（累计、账号排行、按画幅均值、最近明细）、账号表
+  （生图数 / token / 今日已用额度）、生图趋势**每 5 秒刷新一次，待审核队列 10 秒一次，
+  日志 3 秒一次。所有轮询都只在「已登录 + 页面可见 + 服务在运行」时进行（切到后台自动停），
+  且每个区块先比对内容签名，**数据没变就不重绘**，不会闪烁、也不会把正要点的按钮换掉
 
 旧的 `启动后端.bat` / `停止服务.bat` 已移除。手动方式：
 
@@ -151,7 +226,8 @@ npm start              # 直接启动主服务（不经过控制台）
 npm run dev            # 开发模式，热重载
 ```
 
-启动器会读取 `server/.env`（若存在），其中的 `PORT`、`MAGPIE_BASE_URL`、`MAGPIE_EXE` 等配置优先于默认值。
+启动器会读取 `server/.env`（若存在），其中的 `PORT`、`MAGPIE_BASE_URL` 等配置优先于默认值。
+桌面端不读 `server/.env`，改 `<数据目录>/config.env`。
 
 ### 手动启动
 
@@ -174,13 +250,20 @@ npm start
 
 ```text
 POST /api/images
-  请求  { prompt, ratio, category, name, source }   需要登录
+  请求  { prompt, ratio, category, name, source, referencePath? }   需要登录
+        referencePath 为上传接口返回的相对路径（参考图/<文件名>）；
+        带它时后端走 Magpie 的 /v1/images/edits（图生图），不带则走文本生成
   成功  { id, imageUrl, model, mimeType, bytes, width, height, ratio }
   失败  { error, code }
 
+POST /api/reference-images
+  请求  { name, dataUrl }   data:image/(png|jpeg|webp);base64,...   需要登录
+        单张上限 8 MiB（路由 bodyLimit 12 MiB）
+  成功  { path, url, width, height, bytes }   201
+
 GET    /api/config      画面比例、原生尺寸、提示词上限、默认值
 GET  /api/health      后端与上游 Magpie 的连通状态
-GET  /api/queue       串行闸门状态：{ busy, waiting }
+GET  /api/queue       生图闸门状态：{ busy, active, limit, waiting }
 GET  /api/files/*     生成图片（支持 类别/文件名 与旧版 UUID 两种形式）
 GET  /api/history     当前账号的生成记录（提示词、耗时、画幅、像素、图片地址、token 用量）
 
@@ -197,6 +280,7 @@ PUT /api/styles   保存当前账号的风格库
 POST /api/auth/login   登录 { username, password } → { user }
 POST /api/auth/logout  登出
 GET  /api/auth/me      当前登录用户
+PATCH /api/auth/me    自助修改显示名 { displayName }（用户名不变；重名 409）
 GET  /api/auth/status  账号库状态（登录页用）{ needsSetup, setupEnabled, registrationOpen }
 POST /api/auth/setup   引导创建首个管理员（需管理密钥，且账号库为空）
 POST /api/auth/register 自助申请账号 { username, displayName?, password }
@@ -216,7 +300,12 @@ POST   /api/admin/registrations/:id/approve  通过申请（账号立即可登�
 POST   /api/admin/registrations/:id/reject   拒绝申请（删除该记录）      管理员
 GET    /api/admin/quotas  每账号每日额度与今日用量  管理员
 PUT    /api/admin/users/:id/quota  设置每日额度 { dailyLimit }（0=不限额） 管理员
+GET    /api/admin/concurrency  生图并发上限与在途情况  管理员
+PUT    /api/admin/concurrency  运行时调整并发上限 { limit: 1–8 }，立即生效并落盘  管理员
 GET    /api/quota        当前账号的今日额度状态（登录即可）
+GET    /api/upstream     控制台的 Magpie 地址设置与当前连通性（控制台管理员）
+PUT    /api/upstream     保存 Magpie 地址 { baseUrl } 并重启主服务（控制台管理员）
+POST   /api/upstream/test  按传入地址探一次连通性，不保存（控制台管理员）
 GET    /api/admin/stats/trend?range=today|7d|30d|90d|180d
                           生图趋势折线图数据  管理员
                           （today 按小时分桶，其余按天分桶，取自本地 usage.json）
@@ -327,7 +416,12 @@ ADMIN_SETUP_KEY=换成你自己的长随机串
   `pending` 置为 false，账号才算真正注册成功、才能登录；点「拒绝」会删除这条记录。
 - 审核期间账号不出现在账号列表、额度表和统计里（它们只认已通过审核的账号）。
 - 密码用 `scrypt` 加随机盐哈希存储，文件里没有明文。
-- 会话用 HttpOnly Cookie，有效期 7 天；`SESSION_SECRET` 留空则每次启动重新生成（重启需重登）。
+- **显示名唯一**：去掉首尾空格后不区分大小写比对，待审核的申请也占名；
+  自助改名、管理员改名、注册与新建账号都走同一条校验，重复时返回「这个名称已被使用，换一个试试」。
+  登录用的**用户名不可改**（它是账号主键，改了会连带影响登录与历史归属）。
+- 会话用 HttpOnly Cookie，有效期 7 天；会话令牌落盘到 `<dataDir>/sessions.json`，
+  **重启服务、停用后再启动都不会掉登录**，只有主动退出、账号被停用/删除或超过 7 天才失效。
+  `SESSION_SECRET` 只用于 Cookie 签名，留空时每次启动随机生成也不影响登录状态。
 - 停用账号后该账号立即无法登录。
 
 页面与接口双重把关：未登录访问工作台会跳转到登录页，未登录调用生图接口直接拒绝。
@@ -383,9 +477,16 @@ generated/    图片文件
 
 `usage.json` 会随生图量增长，长期使用建议定期归档。
 
-## 串行闸门
+## 生图并发闸门
 
-任何时刻只放行一个生图请求打向上游，避免多标签页或多个前端实例同时刷同一个账号触发风控。`/api/queue` 可查看当前是否忙碌与等待数。
+打向上游的生图请求有全局上限（默认 5，范围 1–8），可在**服务端控制台 → 生图并发**里运行时调整：
+保存后立即生效，写入 `data/concurrency.json`，服务重启后沿用。批量页的「并行数」不会超过它。
+
+- 前端默认并行 5（实测上游约 5 个并发槽），可在批量页 1–8 之间调整；调到 1 即逐张生成。
+- 上限对所有标签页、所有账号合计生效，避免多端同时刷上游触发风控。
+- 优先级：`data/concurrency.json`（控制台）> `IMAGE_CONCURRENCY` 环境变量 > 默认 5。
+- 每日额度按「今日已用 + 在途」判断，并行时不会超发。
+- `/api/queue` 可查看 `{ busy, active, limit, waiting }`。
 
 ## 资产批量工作台
 
@@ -398,12 +499,32 @@ generated/    图片文件
 - 导入顶层为 `role`、`scene`、`prop` 的资产 JSON。
 - 角色解析 `【字段】: 内容`，场景和道具解析分号分隔字段。
 - 角色、场景、道具分别成页，自动统计数量，支持搜索与分页。
+- **同一角色 / 同一场景自动归组**：
+  - 角色名按 `-`、`·`、`（…）` 等后缀或「状态 / 形态 / 阶段 / 时期」字段识别状态；
+  - 场景名按同一套后缀规则或「子场景 / 区域 / 分区 / 场景类型」字段识别区域，
+    例如 `皇宫-主殿`、`皇宫·偏殿`、`皇宫（外景）` 归到「皇宫」；
+  - 父行汇总全部状态/区域（整组勾选、展开/收起、整组进度），展开后缩进列出；分页按组切分，
+    同一主体不会被拆到两页。道具不做分组。
+- **角色面部参考图**：角色表「面部参考」列可上传一张脸（PNG / JPEG / WebP，≤ 8 MB），该角色的所有状态共用，
+  生成时连同图片一起发给 Magpie 的 `/v1/images/edits`，并在提示词里追加面部一致性要求。
+  参考图存在图片目录的 `参考图/` 下，项目里只记相对路径；「清除」只解绑，不删除文件。
+- **历史生成图与主要图片**：每条资产保留最近 20 张历史（新→旧），编辑弹窗底部列出，点「设为主要」选定主图。
+  表格结果列、弹窗预览、单张下载都取主图；每次重新生成会把新图设为主图。
+  打开弹窗时会按「名称 + 类型」从账号生成记录回填最多 500 条里的旧图（不同项目的同名资产可能混入，属已知限制）。
+- **批量下载所选**：工具栏按钮只下载所选资产的主图，没有图的自动跳过；
+  浏览器可能询问是否允许下载多个文件，文件名为 `<资产名>-主图-<尺寸>-<时间>`。
 - 风格设定页提供三套互不干扰的风格库（角色/场景/道具），每套可新建、编辑、删除、设默认。
   风格属于**当前项目**，不同项目可以各用各的。
+- **风格库导出 / 导入**：风格库标题右侧的两个按钮可把三套风格与各自默认项导出为
+  `画境-风格库-YYYYMMDD-HHmmss.json`（`format: huajing-styles`、`version: 1`）；
+  导入按名称合并（同名覆盖描述、保留本地 id，新名称追加，不删除现有风格），
+  文件里的默认项能按名称对上时会一并设为默认。单文件上限 2 MB。
 - 生成时以风格描述为最高优先级，拼接在资产内容之前。
 - 每项资产独立保存提示词、比例、风格、状态与结果；导入数据存在浏览器 `localStorage`。
 - **自由创作的提示词草稿、画面比例、上次生成结果都会随刷新保留**（存在同一份本地数据里），
   用最大化编辑器修改后同样会立即写入，不会因为刷新丢字。
+- **改自己的名称**：头像菜单 →「修改名称」可以改自己的**显示名**（登录用的用户名不变）。
+  名称在账号库里唯一，重名会被拒绝并给出提示；最多 24 个字，改完头像首字与菜单里的名字立即更新。
 
 #### 本地缓存按账号隔离
 
@@ -447,11 +568,12 @@ generated/    图片文件
 
 与服务器控制台共用一套思路（任务优先、精确克制），令牌集中在 `web/src/batch/batch.css` 的 `:root`：
 
-- **圆角档位**：外壳 24 = 面板 16 + 缝隙 8；面板 16 = 构件 12 + 缝隙 4，统一用 `--radius-shell/panel/inner/field`
-- **层次**：外壳只保留一层边界（细边 + 极淡投影），内部不再叠卡片阴影；说明卡里的数量统计改成一条指标带（细线分隔，不再嵌套小卡片）
-- **对比度**：次要文字 `--ink-faint` 从 2.8:1 提到 **4.6–5.6:1**
-- **浏览器表面**：选区、光标、滚动条、`:focus-visible` 焦点环都从调色板取色；数字统一 `tabular-nums`
-- **标题区**：去掉标题上方的全大写英文小标签，改为标题 + 一句功能说明
+- **视觉令牌**：保留暖纸色、墨绿与陶土橙品牌色，统一 `--surface-raised/subtle`、边框、圆角与控件高度；外壳只留一层轻边界和淡投影，内部工作区用细线与低明度差分层，不叠卡片阴影
+- **顶栏与导航**：42px 品牌标 +「画境 / 资产创作工作台」组成紧凑顶栏；六个主入口使用下划线指示当前页，资产数量保留等宽数字，窄屏可横向滚动
+- **文字与控件**：正文和表格主要内容使用 12–14px，辅助信息使用 11–12px；按钮、输入框和选择器统一 40px 标准高度，焦点环、选区、光标和滚动条从调色板取色
+- **批量工具栏**：第一行放搜索与选择，第二行放画幅/风格/并行参数和生成/下载操作；所有原操作保持不变，宽表只在自身容器内横向滚动
+- **自由创作**：提示词表单与画面预览为并列主工作区，输入、比例、生成、进度形成明确顺序；空态使用内联 SVG，下载/最大化仍只在有图后可用
+- **弹层与风格页**：风格类型切换、列表和编辑器复用同一套表面与控件；资产弹窗、项目抽屉、提示词编辑器和生成记录统一圆角、间距、关闭按钮及滚动行为
 - **提示词悬浮按钮**：只在鼠标进入输入框右上角热区（右 150px × 上 56px）时浮现，
   不再一进输入框就出现；键盘 Tab 聚焦按钮时同样显示
 - **滚轮不外溢**：生成记录面板与日志窗口的滚动区都设了 `overscroll-behavior: contain`，
@@ -460,11 +582,8 @@ generated/    图片文件
   也不会和系统里的反向滚动设置打架（早前版本手动 `scrollTop += delta`，
   方向取决于自己算的增量，增量单位和浏览器对不上时就会「滚轮往下、内容往上」）；
   指针落在面板标题或搜索框上时把滚动转交给列表；列表本身不可滚时照常滚页面
-- **移动端**：顶栏品牌独占一行、操作按钮换行、标题不折行；导航标签可横向滚动（不再裁掉最后一个）；
-  预览区只有真的生成图片后才显示下载/最大化按钮（原来窄屏下无条件显示）
-- **暗色主题**：`prefers-color-scheme: dark` 下整体换成深色令牌（纸底 `#171a17`、面板 `#1f2320`），
-  逐条接管原本写死浅色的表面（卡片、表单、表格、弹层、进度条、玻璃按钮）；
-  正文对比度 12.3:1、次要文字 7.1:1，字重整体调细一档抵消黑底白字的光晕
+- **移动端**：680px 以下隐藏重复品牌副标题，操作按钮换行，工具组按内容换行；自由创作改为单列、主生成按钮通栏，表格保留内部横向滚动，页面本身不出现横向溢出
+- **暗色主题**：`prefers-color-scheme: dark` 下统一使用深纸底与三级深色表面，覆盖卡片、表单、表格、弹层和玻璃按钮；正文与辅助文字保持清晰对比，字重整体调细一档抵消黑底白字的光晕
 - **生成中刷新不会丢结果**：提交时前端生成一个任务 ID 并存本地，服务端按该 ID 记录任务状态
   （`GET /api/images/jobs/:id`，仅本人可查）。刷新后页面自动接回进度条并轮询，
   生成完成即显示图片；任务过期或服务重启过则提示重新生成。
@@ -472,7 +591,9 @@ generated/    图片文件
   标题下的说明会显示当前批量比例；点「应用到所选」会同时套用比例与风格。
 - **风格库存放在后端** `styles.json`（可用 `STYLE_LIBRARY_PATH` 改路径），
   因此换浏览器、换机器打开同一地址都能读到同一份风格；`localStorage` 仅作为离线兜底。
-- 批量生成在前端编排顺序执行，后端串行闸门保证不会并发。
+- 批量生成默认并行 5；在工具栏把**并行数**调到 1–8（不超过控制台的全局上限）即可改变，
+  前端用同样多的 worker 分发任务，服务端闸门按当前上限放行。并行时队列面板会同时显示多张进度。
+  控制台调整上限后，刷新批量页即可看到新的可选值。
 - **每条资产有独立的进度条**。状态列显示该条资产自己的进度与阶段
   （正在理解画面 → 搭建构图 → 细化光影 → 完成渲染 → 接收图像 → 即将完成），
   排队中的资产显示队列位置，等待时进度条为空但可见。上游生图没有进度回调，
@@ -487,6 +608,7 @@ HOST / PORT                后端监听地址与端口（局域网访问设 HOST
 PUBLIC_BASE_URL            对外地址；留空按请求 Host 推断
 MAGPIE_BASE_URL            上游 Magpie 网关，默认 http://127.0.0.1:3425
 MAGPIE_IMAGE_MODEL         生图模型，默认 codex/gpt-image-2
+IMAGE_CONCURRENCY          同时打向上游的生图请求上限，默认 5（1–8）；控制台保存过 data/concurrency.json 后以文件为准
 IMAGE_TIMEOUT_MS           单次生成超时，默认 300000
 MAX_PROMPT_LENGTH          提示词上限，默认 12000
 STORAGE_DIR                图片存储目录，默认项目根 generated/
@@ -494,7 +616,7 @@ STYLE_LIBRARY_PATH        风格库目录（每账号一份 <userId>.json），�
 USER_DATABASE_PATH        账号库文件，默认项目根 users.json
 USAGE_DATABASE_PATH       生图统计文件，默认项目根 usage.json
 PROJECT_DATABASE_PATH     项目库文件，默认项目根 projects.json
-SESSION_SECRET            会话签名密钥，留空则每次启动随机生成
+SESSION_SECRET            会话签名密钥，留空则每次启动随机生成（会话令牌已落盘，不影响登录状态）
 ADMIN_SETUP_KEY           引导创建首个管理员的管理密钥，留空则禁用引导
 CORS_ORIGINS              允许的前端来源（已改为自动放行回环与私有网段，此项保留兼容）
 ```

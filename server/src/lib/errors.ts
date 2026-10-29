@@ -15,6 +15,10 @@ export type ApiErrorCode =
   | 'UPSTREAM_BAD_RESPONSE'
   | 'IMAGE_INVALID'
   | 'IMAGE_UNSUPPORTED'
+  | 'IMAGE_REFERENCE_MISSING'
+  | 'REFERENCE_INVALID'
+  | 'REFERENCE_TOO_LARGE'
+  | 'CONCURRENCY_INVALID'
   | 'RATE_LIMITED'
   | 'QUOTA_EXCEEDED'
   | 'INTERNAL_ERROR'
@@ -42,6 +46,8 @@ function defaultStatusFor(code: ApiErrorCode): number {
       return 403
     case 'AUTH_PENDING':
       return 403
+    case 'REFERENCE_TOO_LARGE':
+      return 413
     default:
       return 400
   }

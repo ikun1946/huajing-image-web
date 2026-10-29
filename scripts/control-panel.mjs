@@ -12,19 +12,47 @@
  */
 import { execSync, spawn } from 'node:child_process'
 import { createReadStream, existsSync } from 'node:fs'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import os from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const projectRoot = resolve(here, '..')
-const serverEntry = join(projectRoot, 'server', 'dist', 'index.js')
-const logsDir = join(projectRoot, 'logs')
+/* 打包进桌面端后目录结构与仓库不同，路径统一允许被环境变量覆盖 */
+const projectRoot = process.env.PANEL_ROOT ? resolve(process.env.PANEL_ROOT) : resolve(here, '..')
+const serverEntry = process.env.SERVER_ENTRY
+  ? resolve(process.env.SERVER_ENTRY)
+  : join(projectRoot, 'server', 'dist', 'index.js')
+const logsDir = process.env.LOGS_DIR ? resolve(process.env.LOGS_DIR) : join(projectRoot, 'logs')
 
 const PANEL_PORT = Number(process.env.PANEL_PORT || 8790)
 const SERVER_PORT = Number(process.env.PORT || 8787)
+/* 桌面端把控制台当成自己的子进程时置 1：
+   - 主服务不再 detached（生命周期归桌面端）
+   - 停服务时先请求主服务优雅退出，再等端口释放
+   - 额外开放 POST /api/panel/shutdown 供桌面端退出前收尾 */
+const EMBEDDED = process.env.PANEL_EMBEDDED === '1'
+/* 控制台自己的设置（目前只有上游 Magpie 地址）：存在数据目录里，
+   启动主服务时作为环境变量注入，优先级高于桌面端 config.env 里的默认值。 */
+const settingsDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(projectRoot, 'data')
+const settingsFile = join(settingsDir, 'settings.json')
+const DEFAULT_UPSTREAM = process.env.MAGPIE_BASE_URL || 'http://127.0.0.1:3425'
+const upstreamModel = process.env.MAGPIE_IMAGE_MODEL || 'codex/gpt-image-2'
+let upstreamSettings = { magpieBaseUrl: '' }
+
+/**
+ * 桌面端（父进程）可以直接控制服务：它本来就持有子进程的生命周期，
+ * 不应该再要求用户在一个网页里登录一次管理员。只认嵌入模式 + 进程内随机令牌，
+ * 令牌由桌面端每次启动生成并通过环境变量注入，浏览器页面拿不到。
+ */
+function desktopAuthorized(request) {
+  if (!EMBEDDED) return false
+  const expected = process.env.SHUTDOWN_TOKEN
+  if (!expected) return false
+  const token = request.headers['x-desktop-token']
+  return typeof token === 'string' && token === expected
+}
 
 let serverProcess = null
 let startedAt = 0
@@ -100,10 +128,10 @@ async function startServer() {
   serverProcess = spawn(process.execPath, [serverEntry], {
     cwd: join(projectRoot, 'server'),
     stdio: 'ignore',
-    env: process.env,
-    detached: true,
+    env: { ...process.env, ...settingsEnv() },
+    detached: !EMBEDDED,
   })
-  serverProcess.unref()
+  if (!EMBEDDED) serverProcess.unref()
   serverProcess.on('exit', (code, signal) => {
     lastExit = { code, signal, at: new Date().toISOString() }
     if (serverProcess === trackedProcess) {
@@ -115,9 +143,34 @@ async function startServer() {
   return { ok: true, message: '服务已启动' }
 }
 
-function stopServer() {
-  if (!serverRunning()) return { ok: false, message: '服务未在运行' }
-  // detached 进程无法用句柄可靠终止，直接按监听端口找 PID 杀
+/** 请主服务优雅退出（Windows 上 child.kill() 是强杀，收不到 SIGTERM，只能走接口） */
+async function requestGracefulStop() {
+  const token = process.env.SHUTDOWN_TOKEN
+  if (!token) return false
+  try {
+    const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/shutdown`, {
+      method: 'POST',
+      headers: { 'x-shutdown-token': token },
+      signal: AbortSignal.timeout(3000),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/** 等端口真的释放，避免「刚停就起」时新进程抢不到端口 */
+async function waitForPortFree(timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!(await portAlive())) return true
+    await new Promise(resolveWait => setTimeout(resolveWait, 200))
+  }
+  return false
+}
+
+/** 按监听端口反查 PID 强杀：句柄失效或非嵌入模式下的兜底，仅 Windows */
+function killByPort() {
   try {
     const netstat = execSync(
       `netstat -ano | findstr :${SERVER_PORT} | findstr LISTENING`, { encoding: 'utf8' })
@@ -129,19 +182,44 @@ function stopServer() {
       execSync(`taskkill /f /pid ${pid}`, { stdio: 'ignore' })
     }
   } catch {
-    if (serverProcess && serverProcess.pid) serverProcess.kill()
+    if (serverProcess && serverProcess.pid) {
+      try { serverProcess.kill() } catch {}
+    }
   }
-  serverProcess = null
-  startedAt = 0
-  return { ok: true, message: '停止信号已发送' }
 }
 
-function restartServer() {
-  if (serverRunning()) stopServer()
-  // 给旧进程一点退出时间再拉起
-  return new Promise(resolvePromise => {
-    setTimeout(() => resolvePromise(startServer()), 1200)
-  })
+async function stopServer() {
+  if (!serverRunning()) return { ok: false, message: '服务未在运行' }
+
+  if (EMBEDDED) {
+    // 嵌入式：先优雅退出（补写流量、关日志流），失败再兜底强杀
+    if (await requestGracefulStop()) {
+      await waitForPortFree(8000)
+    } else if (serverProcess && serverProcess.pid) {
+      try { serverProcess.kill() } catch {}
+      await waitForPortFree(4000)
+    } else {
+      killByPort()
+      await waitForPortFree(4000)
+    }
+  } else {
+    killByPort()
+    await waitForPortFree(4000)
+  }
+
+  serverProcess = null
+  startedAt = 0
+  probeCache = { at: 0, alive: false }
+  return { ok: true, message: '服务已停止' }
+}
+
+async function restartServer() {
+  if (serverRunning()) {
+    await stopServer()
+  } else {
+    await waitForPortFree(2000)
+  }
+  return startServer()
 }
 
 /* 用控制台持有的令牌调用主服务管理端接口 */
@@ -167,6 +245,65 @@ async function proxyJson(reply, path, options) {
     return json(reply, response.status, payload)
   } catch (error) {
     return json(reply, 502, { error: '主服务无响应：' + error.message })
+  }
+}
+
+/** 读取控制台设置（文件不存在就用空设置） */
+async function loadSettings() {
+  try {
+    const raw = await readFile(settingsFile, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed.magpieBaseUrl === 'string') {
+      upstreamSettings.magpieBaseUrl = parsed.magpieBaseUrl
+    }
+  } catch {}
+}
+
+async function saveSettings() {
+  await mkdir(settingsDir, { recursive: true })
+  await writeFile(settingsFile, JSON.stringify(upstreamSettings, null, 2), 'utf8')
+}
+
+/** 当前生效的上游地址：控制台设置优先，其次环境变量/默认值 */
+function effectiveUpstream() {
+  return (upstreamSettings.magpieBaseUrl || DEFAULT_UPSTREAM).replace(/\/+$/, '')
+}
+
+/** 主服务启动时注入的环境变量（只注入被显式设置过的项） */
+function settingsEnv() {
+  return upstreamSettings.magpieBaseUrl ? { MAGPIE_BASE_URL: upstreamSettings.magpieBaseUrl } : {}
+}
+
+/**
+ * 校验用户填的上游地址：只允许 http/https、必须有主机名、不能带账号密码。
+ * 允许回环与内网地址——这个项目的上游本来就是本机的 Magpie。
+ */
+function normalizeUpstreamUrl(value) {
+  const raw = String(value == null ? '' : value).trim()
+  if (!raw) throw new Error('请填写 Magpie 地址')
+  if (raw.length > 300) throw new Error('地址过长')
+  let parsed
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new Error('地址格式不正确，示例：http://127.0.0.1:3425')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('只支持 http / https 地址')
+  }
+  if (!parsed.hostname) throw new Error('地址里缺少主机名')
+  if (parsed.username || parsed.password) throw new Error('地址里不要带用户名和密码')
+  const pathname = parsed.pathname.replace(/\/+$/, '')
+  return `${parsed.protocol}//${parsed.host}${pathname}`
+}
+
+/** 探一下上游是否可达：任何 HTTP 响应都算可达（401 也说明服务在） */
+async function probeUpstream(baseUrl) {
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(2500) })
+    return { reachable: true, status: response.status }
+  } catch (error) {
+    return { reachable: false, error: error.message }
   }
 }
 
@@ -230,6 +367,8 @@ async function listLogs() {
     return []
   }
 }
+
+await loadSettings()
 
 const server = createServer(async (request, reply) => {
   const url = new URL(request.url, `http://127.0.0.1:${PANEL_PORT}`)
@@ -364,18 +503,82 @@ const server = createServer(async (request, reply) => {
       return proxyJson(reply, '/api/admin/stats/trend?range=' + encodeURIComponent(range))
     }
 
+    // 桌面端退出前调用：停服务 + 关闭控制台自身（只在嵌入模式开放，且只接受本机）
+    if (path === '/api/panel/shutdown' && request.method === 'POST') {
+      if (!EMBEDDED) return json(reply, 404, { error: '未启用嵌入模式' })
+      const remote = request.socket.remoteAddress || ''
+      if (!/^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(remote)) {
+        return json(reply, 403, { error: '仅允许本机调用' })
+      }
+      json(reply, 200, { ok: true })
+      setTimeout(async () => {
+        try { await stopServer() } catch {}
+        try { server.close(() => process.exit(0)) } catch { process.exit(0) }
+      }, 80)
+      return
+    }
+
+    // 上游（Magpie）地址设置：控制台自己的配置，改了要重启主服务才生效
+    if (path === '/api/upstream') {
+      if (!panelSession.token && !desktopAuthorized(request)) return notLoggedIn(reply)
+      if (request.method === 'GET') {
+        const baseUrl = effectiveUpstream()
+        const probe = await probeUpstream(baseUrl)
+        return json(reply, 200, {
+          baseUrl,
+          saved: upstreamSettings.magpieBaseUrl,
+          envDefault: DEFAULT_UPSTREAM,
+          model: upstreamModel,
+          ...probe,
+        })
+      }
+      if (request.method === 'PUT') {
+        const body = await readBody(request)
+        let baseUrl
+        try {
+          baseUrl = normalizeUpstreamUrl(body.baseUrl)
+        } catch (error) {
+          return json(reply, 400, { error: error.message })
+        }
+        upstreamSettings.magpieBaseUrl = baseUrl
+        await saveSettings()
+        // 主服务只在启动时读配置，改完必须重启才生效
+        const result = await restartServer()
+        return json(reply, 200, {
+          ok: true,
+          baseUrl,
+          restarted: result.ok !== false,
+          message: '已保存并重启服务，请重新登录控制台',
+        })
+      }
+      return json(reply, 405, { error: '不支持的方法' })
+    }
+
+    if (path === '/api/upstream/test' && request.method === 'POST') {
+      if (!panelSession.token && !desktopAuthorized(request)) return notLoggedIn(reply)
+      const body = await readBody(request)
+      let baseUrl
+      try {
+        baseUrl = normalizeUpstreamUrl(body.baseUrl)
+      } catch (error) {
+        return json(reply, 400, { error: error.message })
+      }
+      return json(reply, 200, { baseUrl, ...(await probeUpstream(baseUrl)) })
+    }
+
     // 控制类操作需要登录；唯一例外是「服务未运行时允许启动」——
     // 登录凭证由主服务校验，不先启动就无从登录，必须留这个引导口子。
     if (path === '/api/start' && request.method === 'POST') {
-      if (serverRunning() && !panelSession.token) return notLoggedIn(reply)
+      const allowed = panelSession.token || desktopAuthorized(request)
+      if (serverRunning() && !allowed) return notLoggedIn(reply)
       return json(reply, 200, await startServer())
     }
     if (path === '/api/stop' && request.method === 'POST') {
-      if (!panelSession.token) return notLoggedIn(reply)
-      return json(reply, 200, stopServer())
+      if (!panelSession.token && !desktopAuthorized(request)) return notLoggedIn(reply)
+      return json(reply, 200, await stopServer())
     }
     if (path === '/api/restart' && request.method === 'POST') {
-      if (!panelSession.token) return notLoggedIn(reply)
+      if (!panelSession.token && !desktopAuthorized(request)) return notLoggedIn(reply)
       return json(reply, 200, await restartServer())
     }
 
@@ -383,6 +586,18 @@ const server = createServer(async (request, reply) => {
       if (request.method === 'GET') return proxyJson(reply, '/api/admin/rate-limit')
       if (request.method === 'PUT') {
         return proxyJson(reply, '/api/admin/rate-limit', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(await readBody(request)),
+        })
+      }
+    }
+
+    // 生图并发上限：运行时调整，无需重启服务
+    if (path === '/api/concurrency') {
+      if (request.method === 'GET') return proxyJson(reply, '/api/admin/concurrency')
+      if (request.method === 'PUT') {
+        return proxyJson(reply, '/api/admin/concurrency', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(await readBody(request)),
@@ -624,6 +839,30 @@ function panelHtml() {
     background: rgba(255, 253, 248, .12); color: #fdfbf6;
   }
   .btn-mini.ghost-light:hover { background: rgba(255, 253, 248, .2); color: #fff; }
+  /* ===== 上游地址设置 ===== */
+  .upstream-block {
+    margin-top: 16px; padding-top: 14px;
+    border-top: 1px solid var(--hair-soft);
+  }
+  .upstream-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .upstream-title { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+  .upstream-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .upstream-input {
+    flex: 1 1 240px; min-width: 180px; height: 32px; padding: 0 10px;
+    border: 1px solid var(--hair); border-radius: var(--radius-field);
+    background: var(--surface); color: var(--ink); font-family: inherit; font-size: 12.5px;
+  }
+  .upstream-input:focus {
+    outline: none; border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-tint);
+  }
+  .btn-mini.primary-mini { background: var(--green-tint); color: var(--green-ink); }
+  .btn-mini.primary-mini:hover { background: rgba(61, 85, 68, .14); color: var(--green-ink); }
+  .upstream-note {
+    margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-faint);
+    word-break: break-all;
+  }
+
   /* ===== 指标条：一行标签+数值，用细线分隔，不再套卡片 ===== */
   .metrics {
     display: grid;
@@ -1103,6 +1342,8 @@ function panelHtml() {
     .btn-start { background: #3f5a46; color: #f2f6f0; }
     .btn-start:hover:not(:disabled) { background: #47654e; }
     /* 表格行内小按钮：浅色主题的深色薄底在暗色下等于没有，换一层亮底 */
+    .btn-mini.primary-mini { background: rgba(148, 186, 155, .16); }
+    .btn-mini.primary-mini:hover { background: rgba(148, 186, 155, .24); }
     td .row-btn { background: rgba(255, 255, 255, .07); }
     td .row-btn:hover { background: rgba(255, 255, 255, .13); }
     .log-wrap { background: #141714; }
@@ -1120,7 +1361,8 @@ function panelHtml() {
         "stats     stats"
         "trend     trend"
         "traffic   traffic"
-        "ratelimit ratelimit";
+        "ratelimit ratelimit"
+        "concurrency concurrency";
       /* 第一行两块等高对齐，避免左侧卡片下方留空档 */
       align-items: stretch;
     }
@@ -1132,6 +1374,7 @@ function panelHtml() {
     #sec-trend     { grid-area: trend; }
     #sec-traffic   { grid-area: traffic; }
     #sec-ratelimit { grid-area: ratelimit; }
+    #sec-concurrency { grid-area: concurrency; }
     /* 日志高度与左侧服务卡片相近，内部滚动，不撑高整行 */
     #sec-logs pre { height: 214px; max-height: 214px; }
     #sec-logs .log-wrap { flex: 0 0 auto; }
@@ -1246,6 +1489,19 @@ function panelHtml() {
       <div><dt>运行时间</dt><dd id="st-uptime">—</dd></div>
       <div><dt>客户端地址（局域网）</dt><dd class="small" id="st-url">—</dd></div>
     </dl>
+    <div class="upstream-block">
+      <div class="upstream-head">
+        <span class="upstream-title">上游 Magpie</span>
+        <span class="hint" id="upstream-hint">生图会转发到该地址的 /v1/images/generations</span>
+      </div>
+      <div class="upstream-row">
+        <input class="upstream-input" id="upstream-url" type="text" spellcheck="false"
+               autocomplete="off" aria-label="Magpie 地址" placeholder="http://127.0.0.1:3425">
+        <button class="btn-mini" id="upstream-test" type="button">测试连通</button>
+        <button class="btn-mini primary-mini" id="upstream-save" type="button">保存并重启</button>
+      </div>
+      <p class="upstream-note" id="upstream-note">正在读取当前地址…</p>
+    </div>
   </section>
 
   <section class="bootstrap-card" id="bootstrap-card" hidden>
@@ -1396,6 +1652,20 @@ function panelHtml() {
     <p class="msg" style="margin:10px 0 0">超出窗口限额的客户端会收到 429 响应。配置保存在 data/rate-limit.json，服务重启后仍然生效。</p>
   </section>
 
+  <section class="auth-only" id="sec-concurrency" hidden>
+    <div class="sec-head">
+      <h2>生图并发</h2>
+      <span class="hint" id="cc-state-hint"></span>
+    </div>
+    <div class="rl-row">
+      <label>全局上限 <input type="number" id="cc-limit" min="1" max="8" step="1" value="5"> 张</label>
+      <button class="btn-start" id="cc-save" type="button">保存并生效</button>
+      <span class="msg" id="cc-msg"></span>
+    </div>
+    <p class="msg" style="margin:10px 0 0">所有标签页与账号合计最多同时生成这么多张，改完立即生效，并保存到 data/concurrency.json。
+      批量页的并行数不会超过它；调整后刷新批量页即可看到新的可选值。</p>
+  </section>
+
   <section class="auth-only" id="sec-logs" hidden>
     <div class="sec-head">
       <h2>运行日志</h2>
@@ -1530,6 +1800,7 @@ async function refresh() {
   // 登录态：控制台自己的管理员会话（不依赖客户端页面里的登录状态）
   const loggedIn = Boolean(status.auth)
   panelLoggedIn = loggedIn
+  serviceRunning = Boolean(status.running)
   $('who').hidden = !loggedIn
   $('btn-logout').hidden = !loggedIn
   if (loggedIn) $('who').textContent = (status.auth.displayName || status.auth.username) + '（管理员）'
@@ -1549,7 +1820,7 @@ async function refresh() {
   // 未登录时整个控制台不可用（服务控制、日志也只对已登录管理员开放）
   for (const id of [
     'sec-service', 'sec-accounts', 'sec-stats', 'sec-trend',
-    'sec-traffic', 'sec-ratelimit', 'sec-logs',
+    'sec-traffic', 'sec-ratelimit', 'sec-concurrency', 'sec-logs',
   ]) {
     $(id).hidden = !loggedIn
   }
@@ -1567,6 +1838,7 @@ async function refresh() {
     loadStats()
     loadTrend()
     loadLogs('')
+    loadUpstream()
   }
   if (!loggedIn) wasLoggedIn = false
 
@@ -1610,6 +1882,13 @@ async function refresh() {
       ? '已启用 · 活跃窗口 ' + monData.rateLimit.activeClients + ' 个'
       : '未启用'
     $('rl-switch-text').textContent = monData.rateLimit.config.enabled ? '限流已启用' : '限流未启用'
+
+    // 生图并发：显示当前上限与在途情况；用户正在编辑输入框时不回填
+    if (monData.queue) {
+      if (!ccDirty) $('cc-limit').value = monData.queue.limit
+      $('cc-state-hint').textContent = '当前上限 ' + monData.queue.limit +
+        ' · 生成中 ' + monData.queue.active + ' / 等待 ' + monData.queue.waiting
+    }
   }
 }
 
@@ -1688,6 +1967,76 @@ async function api(path, options) {
   return data
 }
 
+/* ===== 上游（Magpie）地址设置 ===== */
+let upstreamLoaded = false
+
+function describeUpstream(data) {
+  const source = data.saved ? '控制台设置' : '默认/环境变量'
+  const reach = data.reachable ? '可达（HTTP ' + data.status + '）' : '当前不可达'
+  return '生效地址：' + data.baseUrl + '（' + source + '）· 模型 ' + data.model + ' · ' + reach
+}
+
+async function loadUpstream(force = false) {
+  if (upstreamLoaded && !force) return
+  try {
+    const data = await api('/api/upstream')
+    upstreamLoaded = true
+    const input = $('upstream-url')
+    if (input && !input.value) input.value = data.saved || data.baseUrl || ''
+    $('upstream-note').textContent = describeUpstream(data)
+  } catch (error) {
+    $('upstream-note').textContent = '读取上游设置失败：' + error.message
+  }
+}
+
+$('upstream-test').addEventListener('click', async () => {
+  const button = $('upstream-test')
+  const note = $('upstream-note')
+  button.disabled = true
+  button.textContent = '测试中…'
+  try {
+    const data = await api('/api/upstream/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: $('upstream-url').value }),
+    })
+    note.textContent = data.reachable
+      ? data.baseUrl + ' 可达（HTTP ' + data.status + '）'
+      : data.baseUrl + ' 连不上：' + (data.error || '请确认 Magpie 正在运行')
+  } catch (error) {
+    note.textContent = error.message
+  } finally {
+    button.disabled = false
+    button.textContent = '测试连通'
+  }
+})
+
+$('upstream-save').addEventListener('click', async () => {
+  const button = $('upstream-save')
+  const note = $('upstream-note')
+  button.disabled = true
+  button.textContent = '保存中…'
+  try {
+    const data = await api('/api/upstream', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: $('upstream-url').value }),
+    })
+    upstreamLoaded = false
+    // 重启后旧的登录会话失效，顺手退出控制台，避免看着「已登录」却点什么都 401
+    await fetch('/api/panel/logout', { method: 'POST' }).catch(() => {})
+    note.textContent = data.message || ('已保存 ' + data.baseUrl)
+    $('login-msg').textContent = data.message || '已保存并重启，请重新登录'
+    $('login-msg').className = 'msg ok'
+    wasLoggedIn = false
+    refresh()
+  } catch (error) {
+    note.textContent = '保存失败：' + error.message
+    button.disabled = false
+    button.textContent = '保存并重启'
+  }
+})
+
 async function loadUsers() {
   try {
     const data = await api('/api/admin/users')
@@ -1705,6 +2054,20 @@ async function loadUsers() {
       const quotaData = await api('/api/admin/quotas')
       for (const row of (quotaData.quotas || [])) quotaMap[row.userId] = row
     } catch {}
+
+    const signature = JSON.stringify([
+      users.map(user => [user.id, user.username, user.displayName, user.role, user.disabled]),
+      users.map(user => [counts[user.username] || 0, tokenByUser[user.username] || 0]),
+      users.map(user => {
+        const quota = quotaMap[user.id] || {}
+        return [quota.dailyLimit || 0, quota.usedToday || 0]
+      }),
+    ])
+    if (signature === usersSignature) {
+      loadRegistrations()
+      return
+    }
+    usersSignature = signature
 
     $('users-body').innerHTML = users.length
       ? users.map(user => {
@@ -1870,11 +2233,29 @@ $('pending-body').addEventListener('click', async event => {
 
 /* ===== 生图统计 ===== */
 let cachedStats = null
+/* 数据区轮询用：内容签名不变就不重绘，避免闪一下、也别把正在点的按钮换掉 */
+let statsSignature = ''
+let usersSignature = ''
+let trendSignature = ''
+let serviceRunning = false
 
 async function loadStats() {
   try {
     const stats = await api('/api/admin/stats')
     cachedStats = stats
+
+    const signature = JSON.stringify([
+      stats.totalImages, stats.totalTokens, stats.totalBytes, stats.accountCount, stats.avgTokens,
+      (stats.accounts || []).map(item => [item.username, item.count, item.tokens, item.avgTokens]),
+      (stats.ratioStats || []).map(item => [item.ratio, item.count, item.tokens]),
+      (stats.recent || []).slice(0, 5).map(item => item.id),
+    ])
+    if (signature === statsSignature) {
+      loadUsers()
+      return
+    }
+    statsSignature = signature
+
     $('st-total').textContent = String(stats.totalImages || 0)
     $('st-accounts').textContent = String(stats.accountCount || 0)
     $('st-bytes').textContent = fmtBytes(stats.totalBytes || 0)
@@ -2027,11 +2408,15 @@ let lastTrendBuckets = []
 
 async function loadTrend() {
   const svg = $('trend-chart')
-  hideTrendTooltip()
   try {
     const data = await api('/api/admin/stats/trend?range=' + encodeURIComponent(trendRange))
     const buckets = data.buckets || []
     lastTrendBuckets = buckets
+
+    const signature = trendRange + '|' + JSON.stringify(buckets.map(bucket => [bucket.label, bucket.count, bucket.tokens]))
+    if (signature === trendSignature) return
+    trendSignature = signature
+    hideTrendTooltip()
     $('trend-total').textContent = '本范围共 ' + (data.total || 0) + ' 张'
     if (!buckets.some(bucket => bucket.count > 0)) {
       $('trend-empty').hidden = false
@@ -2256,6 +2641,42 @@ $('rl-save').onclick = async () => {
   setTimeout(refresh, 600)
 }
 
+// 生图并发：保存后立即生效，无需重启服务
+let ccDirty = false
+$('cc-limit').addEventListener('input', () => { ccDirty = true })
+$('cc-limit').addEventListener('change', () => { ccDirty = true })
+
+$('cc-save').onclick = async () => {
+  const msg = $('cc-msg')
+  const limit = Number($('cc-limit').value)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 8) {
+    msg.textContent = '并发上限必须是 1–8 之间的整数'
+    msg.className = 'msg err'
+    return
+  }
+
+  msg.textContent = '保存中…'
+  msg.className = 'msg'
+  try {
+    const result = await fetch('/api/concurrency', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit }),
+    })
+    const data = await result.json()
+    if (result.ok) {
+      msg.textContent = '已保存并生效：上限 ' + data.limit
+      msg.className = 'msg ok'
+      msg.classList.remove('pop'); void msg.offsetWidth; msg.classList.add('pop')
+      ccDirty = false
+    } else {
+      msg.textContent = data.error || '保存失败'
+      msg.className = 'msg err'
+    }
+  } catch { msg.textContent = '服务未运行或无响应'; msg.className = 'msg err' }
+  setTimeout(refresh, 600)
+}
+
 let lastLogStamp = ''      // 日期 + 文件大小 + 修改时间，用于判断是否有新日志
 let panelLoggedIn = false
 
@@ -2421,6 +2842,14 @@ setInterval(() => {
   if (!panelLoggedIn || document.hidden) return
   loadRegistrations()
 }, 10000)
+
+// 数据区（生图统计 / 账号表 / 趋势）也跟着自动刷新：
+// 已登录 + 页面可见 + 服务在运行才拉；各区块内部比内容签名，没变化不重绘
+setInterval(() => {
+  if (!panelLoggedIn || document.hidden || !serviceRunning) return
+  loadStats()
+  loadTrend()
+}, 5000)
 // 运行时间独立走时：250ms 一次，肉眼连续无跳秒
 setInterval(renderUptime, 250)
 `
