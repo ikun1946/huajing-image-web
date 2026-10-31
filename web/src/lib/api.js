@@ -168,3 +168,29 @@ export function uploadReferenceImage({ name, dataUrl }) {
 export function fetchHistory(limit = 200) {
   return request(`/api/history?limit=${encodeURIComponent(limit)}`, { method: 'GET' })
 }
+
+// ---------- 意见反馈 ----------
+
+/** 客户端提交一条反馈：category 为 bug / suggestion / other */
+export function submitFeedback({ category, content, page, appVersion }) {
+  return request('/api/feedback', {
+    method: 'POST',
+    body: JSON.stringify({ category, content, page, appVersion }),
+  })
+}
+
+export function fetchMyFeedback(limit = 20) {
+  return request(`/api/feedback/mine?limit=${encodeURIComponent(limit)}`, { method: 'GET' })
+}
+
+export function fetchAdminFeedback(status = 'all', limit = 200) {
+  const params = new URLSearchParams({ status, limit: String(limit) })
+  return request(`/api/admin/feedback?${params.toString()}`, { method: 'GET' })
+}
+
+export function updateFeedbackStatus(id, status) {
+  return request(`/api/admin/feedback/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+}

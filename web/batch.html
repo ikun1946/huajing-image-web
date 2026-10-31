@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>画境 · 资产批量生图</title>
+  <link rel="stylesheet" href="/src/ui/tokens.css">
+  <link rel="stylesheet" href="/src/ui/base.css">
+  <link rel="stylesheet" href="/src/ui/components.css">
   <link rel="stylesheet" href="/src/batch/batch.css">
   <link rel="stylesheet" href="/src/lib/prompt-tools.css">
   <link rel="stylesheet" href="/src/lib/history-panel.css">
@@ -57,25 +60,33 @@
               </svg>
               <span>修改名称</span>
             </button>
+            <button class="history-entry" id="feedback-button" type="button" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"></path>
+                <path d="M8 9h8"></path>
+                <path d="M8 13h5"></path>
+              </svg>
+              <span>意见反馈</span>
+            </button>
             <button class="logout-button" id="logout-button" type="button" role="menuitem">退出登录</button>
           </div>
         </div>
       </div>
     </header>
 
-    <nav class="tabs" aria-label="资产页面">
-      <button class="tab active" data-tab="import" type="button">资产导入</button>
-      <button class="tab" data-tab="role" type="button">
+    <nav class="tabs" role="tablist" aria-label="资产页面">
+      <button class="tab active" id="tab-import" data-tab="import" type="button" role="tab" aria-selected="true" aria-controls="panel-import" tabindex="0">资产导入</button>
+      <button class="tab" id="tab-role" data-tab="role" type="button" role="tab" aria-selected="false" aria-controls="panel-role" tabindex="-1">
         角色资产 <span class="tab-count" data-count="role">0</span>
       </button>
-      <button class="tab" data-tab="scene" type="button">
+      <button class="tab" id="tab-scene" data-tab="scene" type="button" role="tab" aria-selected="false" aria-controls="panel-scene" tabindex="-1">
         场景资产 <span class="tab-count" data-count="scene">0</span>
       </button>
-      <button class="tab" data-tab="prop" type="button">
+      <button class="tab" id="tab-prop" data-tab="prop" type="button" role="tab" aria-selected="false" aria-controls="panel-prop" tabindex="-1">
         道具资产 <span class="tab-count" data-count="prop">0</span>
       </button>
-      <button class="tab" data-tab="free" type="button">自由创作</button>
-      <button class="tab" data-tab="style" type="button">风格设定</button>
+      <button class="tab" id="tab-free" data-tab="free" type="button" role="tab" aria-selected="false" aria-controls="panel-free" tabindex="-1">自由创作</button>
+      <button class="tab" id="tab-style" data-tab="style" type="button" role="tab" aria-selected="false" aria-controls="panel-style" tabindex="-1">风格设定</button>
     </nav>
 
     <main>
@@ -90,7 +101,7 @@
               <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
             </svg>
           </div>
-          <div style="min-width:0">
+          <div class="u-min-0">
             <p class="dataset-name" id="dataset-name">未导入文件</p>
             <p class="dataset-meta" id="dataset-meta">导入资产 JSON 后开始批量生成</p>
           </div>
@@ -103,7 +114,7 @@
         </div>
       </div>
 
-      <section class="page" data-panel="import">
+      <section class="page" id="panel-import" role="tabpanel" aria-labelledby="tab-import" data-panel="import">
         <div class="workspace-head">
           <div>
             <h2>导入资产表</h2>
@@ -152,12 +163,12 @@
         </div>
       </section>
 
-      <section class="page" data-panel="role" hidden></section>
-      <section class="page" data-panel="scene" hidden></section>
-      <section class="page" data-panel="prop" hidden></section>
-      <section class="page" data-panel="style" hidden></section>
+      <section class="page" id="panel-role" role="tabpanel" aria-labelledby="tab-role" data-panel="role" hidden></section>
+      <section class="page" id="panel-scene" role="tabpanel" aria-labelledby="tab-scene" data-panel="scene" hidden></section>
+      <section class="page" id="panel-prop" role="tabpanel" aria-labelledby="tab-prop" data-panel="prop" hidden></section>
+      <section class="page" id="panel-style" role="tabpanel" aria-labelledby="tab-style" data-panel="style" hidden></section>
 
-      <section class="page" data-panel="free" hidden>
+      <section class="page" id="panel-free" role="tabpanel" aria-labelledby="tab-free" data-panel="free" hidden>
         <div class="workspace-head">
           <div>
             <h2>自由创作</h2>
@@ -212,7 +223,7 @@
             <div class="free-params">
               <div>
                 <label class="field-label" for="free-ratio">画面比例</label>
-                <select class="select" id="free-ratio">
+                <select class="select" id="free-ratio" data-ratio-select>
                   <option value="1:1">1 : 1 方形</option>
                   <option value="4:3">4 : 3 横向</option>
                   <option value="3:4">3 : 4 纵向</option>
@@ -276,7 +287,7 @@
 
       <div class="queue-panel" id="queue-panel" hidden>
         <div class="queue-top">
-          <div style="min-width:0">
+          <div class="u-min-0">
             <p class="queue-title" id="queue-title">批量任务</p>
             <p class="queue-detail" id="queue-detail">准备中</p>
           </div>
@@ -320,7 +331,7 @@
           <div class="modal-params">
             <div>
               <label class="field-label" for="modal-ratio">画面比例</label>
-              <select class="select" id="modal-ratio">
+              <select class="select" id="modal-ratio" data-ratio-select>
                 <option value="1:1">1 : 1 方形</option>
                 <option value="4:3">4 : 3 横向</option>
                 <option value="3:4">3 : 4 纵向</option>
@@ -367,10 +378,10 @@
   </div>
 
   <div class="drawer-backdrop" id="projects-backdrop" hidden></div>
-  <aside class="drawer" id="projects-drawer" role="dialog" aria-modal="true" aria-label="项目管理" hidden>
+  <aside class="drawer" id="projects-drawer" role="dialog" aria-modal="true" aria-labelledby="projects-title" hidden>
     <div class="drawer-head">
       <div>
-        <h2>项目</h2>
+        <h2 id="projects-title">项目</h2>
         <p>每个项目是一份独立的资产数据，保存在本地</p>
       </div>
       <button class="drawer-close" id="projects-close" type="button" aria-label="关闭">×</button>
@@ -401,6 +412,53 @@
           <div class="modal-actions">
             <button class="button primary" id="rename-save" type="submit">保存</button>
             <button class="button secondary" id="rename-cancel" type="button">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+    <div class="modal-sheet narrow">
+      <header class="modal-head">
+        <div>
+          <p class="modal-kicker">账号</p>
+          <h3 id="feedback-title">意见反馈</h3>
+        </div>
+        <button class="button secondary modal-close" id="feedback-close" type="button">关闭</button>
+      </header>
+      <div class="modal-body narrow-body">
+        <form class="feedback-form" id="feedback-form" novalidate>
+          <div class="feedback-compose" id="feedback-compose">
+            <span class="field-label" id="feedback-category-label">反馈类型</span>
+            <div class="feedback-categories" id="feedback-categories" role="radiogroup" aria-labelledby="feedback-category-label">
+              <button class="feedback-category active" type="button" role="radio" aria-checked="true" tabindex="0" data-feedback-category="bug">缺陷</button>
+              <button class="feedback-category" type="button" role="radio" aria-checked="false" tabindex="-1" data-feedback-category="suggestion">建议</button>
+              <button class="feedback-category" type="button" role="radio" aria-checked="false" tabindex="-1" data-feedback-category="other">其他</button>
+            </div>
+
+            <label class="field-label" for="feedback-content">具体描述</label>
+            <textarea class="textarea feedback-textarea" id="feedback-content" maxlength="2000"
+                      placeholder="描述你遇到的问题或想要的功能……" aria-describedby="feedback-hint"></textarea>
+            <div class="feedback-count-row">
+              <span class="feedback-count"><span id="feedback-count">0</span> / 2000</span>
+            </div>
+            <p class="feedback-hint" id="feedback-hint">至少 5 个字。说明当时在做什么、哪一步不对，能复现的步骤最有用；提交时会一并带上页面与版本号。</p>
+            <p class="feedback-msg" id="feedback-msg" role="alert"></p>
+            <div class="modal-actions">
+              <button class="button primary" id="feedback-submit" type="submit">提交反馈</button>
+              <button class="button secondary" id="feedback-cancel" type="button">取消</button>
+            </div>
+          </div>
+
+          <div class="feedback-done" id="feedback-done" hidden>
+            <p class="feedback-done-title">已提交，感谢你的反馈</p>
+            <p class="feedback-done-hint">最近 3 条反馈的处理状态：</p>
+            <ul class="feedback-list" id="feedback-list"></ul>
+            <div class="modal-actions">
+              <button class="button secondary" id="feedback-again" type="button">再写一条</button>
+              <button class="button primary" id="feedback-done-close" type="button">关闭</button>
+            </div>
           </div>
         </form>
       </div>

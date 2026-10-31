@@ -1,0 +1,404 @@
+/* 响应式：断点收敛为 1240 / 900 / 680，另附 hover 与减动效偏好 */
+
+@media (max-width: 1240px) {
+  .toolbar-row-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar-generate {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .toolbar-field-style .select {
+    width: min(220px, 24vw);
+  }
+}
+
+@media (max-width: 900px) {
+  .app {
+    width: min(100% - 24px, 1600px);
+    margin-top: 12px;
+  }
+
+  .masthead,
+  .tabs {
+    padding-right: 22px;
+    padding-left: 22px;
+  }
+
+  main {
+    padding: 24px 22px;
+  }
+
+  .toolbar-row-main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar-selection {
+    width: 100%;
+  }
+
+  .toolbar-params,
+  .toolbar-generate {
+    width: 100%;
+  }
+
+  .toolbar-field-style .select {
+    width: min(220px, 30vw);
+  }
+
+  .import-layout,
+  .free-layout,
+  .style-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .import-notes {
+    min-height: auto;
+  }
+
+  .free-form {
+    min-height: auto;
+  }
+
+  .free-preview {
+    min-height: 420px;
+  }
+
+  .modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .field-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 680px) {
+  body {
+    padding: 0;
+  }
+
+  .app {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* 窄屏顶栏：品牌独占一行，操作按钮换到下一行，标题不再被挤成两行 */
+  .masthead {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 10px;
+    padding: 16px;
+  }
+
+  .brand {
+    flex: 1 1 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand-text {
+    min-width: 0;
+  }
+
+  .brand-title-line {
+    gap: 8px;
+  }
+
+  .brand-title-line h1 {
+    font-size: 23px;
+  }
+
+  h1 {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand-workspace {
+    font-size: 12px;
+  }
+
+  .brand-divider {
+    height: 15px;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  .brand-mark {
+    flex: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+  }
+
+  .header-actions {
+    position: relative;
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+
+  .user-avatar {
+    position: static;
+  }
+
+  .header-actions .button {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+  }
+
+  .header-actions .button span {
+    display: none;
+  }
+
+  /* 导航横向滚动，不再把最后一个标签裁掉 */
+  .tabs {
+    gap: 20px;
+    padding: 0 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    min-height: 46px;
+    padding: 0;
+    font-size: 12px;
+  }
+
+  main {
+    padding: 20px 14px 30px;
+  }
+
+  .table-scroll::after {
+    position: sticky;
+    right: 8px;
+    bottom: 8px;
+    float: right;
+    padding: 5px 8px;
+    color: var(--ink-soft);
+    border: 1px solid var(--line-soft);
+    border-radius: 99px;
+    background: rgba(255, 253, 248, 0.92);
+    content: "左右滑动查看更多参数";
+    pointer-events: none;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .dataset-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dataset-stats {
+    width: 100%;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .dataset-stat {
+    text-align: left;
+  }
+
+  .dropzone {
+    min-height: 300px;
+    padding: 28px 18px;
+  }
+
+  .dropzone h2 {
+    font-size: 20px;
+  }
+
+  .import-notes {
+    padding: 20px;
+  }
+
+  .workspace-head {
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .workspace-head h2 {
+    font-size: 23px;
+  }
+
+  .workspace-head p {
+    font-size: 12px;
+  }
+
+  .legend {
+    justify-content: flex-start;
+  }
+
+  .toolbar-separator {
+    display: none;
+  }
+
+  .toolbar-row-actions {
+    padding: 10px;
+  }
+
+  .toolbar-group {
+    width: 100%;
+  }
+
+  .toolbar .button {
+    flex: 1 1 auto;
+  }
+
+  .toolbar-selection .button,
+  .toolbar-generate .button {
+    flex: 1 1 auto;
+  }
+
+  .toolbar-params {
+    align-items: flex-end;
+  }
+
+  .toolbar-params .toolbar-field {
+    flex: 1 1 120px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .toolbar-params .select,
+  .toolbar-field-style .select {
+    width: 100%;
+  }
+
+  .toolbar-params > .button {
+    flex: 1 1 100%;
+  }
+
+  .toolbar-concurrency {
+    flex: 1 1 76px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .toolbar-concurrency .select {
+    width: 100%;
+  }
+
+  .free-params,
+  .modal-params {
+    grid-template-columns: 1fr;
+  }
+
+  .free-form {
+    padding: 18px;
+  }
+
+  .free-form .textarea {
+    min-height: 230px;
+  }
+
+  .free-preview {
+    min-height: 350px;
+  }
+
+  .free-submit-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .free-submit-row .button {
+    width: 100%;
+  }
+
+  .image-tools {
+    top: 12px;
+    right: 12px;
+  }
+
+  /* 只有真的生成了图片才显示工具按钮，否则空预览区会浮着两个无用按钮 */
+  .free-preview.has-image .image-tools {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .table-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .style-type-tabs {
+    gap: 18px;
+    margin-bottom: 16px;
+  }
+
+  .style-form-footer .style-usage {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .modal {
+    padding: 10px;
+  }
+
+  .modal-head {
+    padding: 18px;
+  }
+
+  .modal-sheet {
+    max-height: 94vh;
+  }
+
+  .modal-body {
+    max-height: calc(94vh - 88px);
+  }
+
+  .field-list,
+  .asset-prompt-editor {
+    padding: 18px;
+  }
+
+  .modal-actions .button {
+    flex: 1 1 auto;
+  }
+
+  .toast {
+    right: 14px;
+    bottom: 14px;
+    max-width: calc(100vw - 28px);
+  }
+
+  .drawer {
+    width: 100vw;
+  }
+}
+
+@media (hover: none) {
+  .free-preview.has-image .image-tools {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

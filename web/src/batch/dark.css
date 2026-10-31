@@ -1,0 +1,293 @@
+/* 暗色主题：两层暗色覆盖按级联合并为唯一实现，只保留仍有实际效果的规则 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #151915;
+    --paper-deep: #101310;
+    --surface: rgba(28, 33, 29, 0.97);
+    --surface-solid: #1c211d;
+    --surface-raised: #242a25;
+    --surface-subtle: #202520;
+    --ink: #e8e6df;
+    --ink-soft: #adb5ab;
+    --ink-faint: #939c91;
+    --line: rgba(232, 230, 223, 0.14);
+    --line-soft: rgba(232, 230, 223, 0.08);
+    --accent: #ce7654;
+    --accent-dark: #dc8865;
+    --moss: #8aaa8f;
+    --moss-light: #a0bca4;
+    --gold: #c9a468;
+    --danger: #cf8574;
+    --on-accent: #fffaf5;
+    --shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
+  }
+
+  body {
+    background:
+      radial-gradient(circle at 12% -8%, rgba(206, 118, 84, 0.065), transparent 30rem),
+      linear-gradient(180deg, #191e19 0, var(--paper) 32rem, var(--paper-deep) 100%);
+    font-weight: 300;
+  }
+
+  /* 顶栏与外壳：仅靠令牌即可，无需额外覆盖 */
+
+  .brand-mark,
+  .avatar-letter {
+    background: #3f5b48;
+    color: #eef3ea;
+  }
+
+  .user-avatar:focus-visible .avatar-letter,
+  .avatar-letter:hover {
+    background: #4a6a52;
+  }
+
+  .avatar-menu {
+    background: #242a25;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 18px 48px rgba(28, 34, 29, 0.16);
+  }
+
+  .logout-button:hover { background: rgba(207, 133, 116, 0.16); }
+
+  .workspace-link {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: var(--ink-soft);
+  }
+
+  .workspace-link:hover { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
+
+  .button.primary {
+    color: #fffaf5;
+    background: #b96041;
+  }
+
+  .button.primary:hover:not(:disabled) {
+    background: #ca7050;
+  }
+
+  .button.secondary {
+    background: var(--surface-raised);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: var(--ink);
+  }
+
+  .button.secondary:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.11);
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  .mini-button,
+  .icon-button {
+    background: var(--surface-raised);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+
+  .mini-button:hover:not(:disabled),
+  .icon-button:hover { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
+
+  .tab-count {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--ink-soft);
+  }
+
+  .tab.active .tab-count {
+    color: var(--moss);
+    background: rgba(138, 170, 143, 0.12);
+  }
+
+  /* 导航：浅色层的下划线样式在暗色下同样成立，无需覆盖 */
+
+  .dataset-bar,
+  .dropzone,
+  .import-notes,
+  .toolbar-row-actions,
+  .free-form,
+  .free-preview,
+  .style-library,
+  .style-editor,
+  .project-card {
+    background: var(--surface-subtle);
+  }
+
+  .dropzone:hover,
+  .dropzone.dragging,
+  .dropzone:focus-visible {
+    background: rgba(138, 170, 143, 0.09);
+  }
+
+  .drop-icon {
+    background: var(--surface-raised);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--ink-soft);
+  }
+
+  .badge {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--ink-soft);
+  }
+
+  .textarea,
+  .select {
+    background: var(--surface-raised);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--ink);
+  }
+
+  /* input[type=...] 的特异性高于 .input，暗色底必须分开写 */
+  input[type="text"],
+  input[type="number"],
+  input[type="password"] {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--ink);
+  }
+
+  .input:focus,
+  .select:focus,
+  .textarea:focus {
+    box-shadow: 0 0 0 3px rgba(54, 84, 69, 0.1);
+  }
+
+  .select:focus,
+  .textarea:focus {
+    border-color: rgba(54, 84, 69, 0.55);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  input:focus {
+    border-color: var(--moss);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .field-chip,
+  .status-pill {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .row-select {
+    background: var(--surface-raised);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .table-shell {
+    border-color: var(--line-soft);
+  }
+
+  thead th { background: #202520; }
+
+  tbody tr:hover {
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .asset-group-row td { background: rgba(255, 255, 255, 0.05); }
+  .asset-group-row:hover td { background: rgba(255, 255, 255, 0.075); }
+  .asset-child-row:not(.selected-row) td { background: rgba(255, 255, 255, 0.015); }
+
+  .group-toggle {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .state-chip {
+    background: rgba(201, 164, 104, 0.14);
+    border-color: rgba(201, 164, 104, 0.34);
+  }
+
+  .ref-empty,
+  .ref-thumb {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .ref-empty:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.24);
+  }
+
+  .history-tile {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .history-tile.primary {
+    background: rgba(127, 161, 132, 0.12);
+    border-color: rgba(127, 161, 132, 0.38);
+  }
+
+  .history-preview { background: rgba(255, 255, 255, 0.06); }
+
+  .history-pick {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .history-pick:disabled,
+  .history-tile.primary .history-pick {
+    color: var(--ink-soft);
+    background: rgba(127, 161, 132, 0.18);
+    border-color: rgba(127, 161, 132, 0.4);
+  }
+
+  .table-scroll::after {
+    background: rgba(31, 36, 32, 0.94);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .free-preview { border-color: rgba(255, 255, 255, 0.1); }
+
+  .queue-panel {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .progress-track,
+  .cell-progress-track { background: rgba(255, 255, 255, 0.1); }
+
+  .preview-placeholder-mark { background: rgba(138, 170, 143, 0.1); }
+
+  .style-list-item { background: var(--surface-raised); }
+
+  .style-list-item:hover { background: rgba(255, 255, 255, 0.05); }
+
+  .modal-result {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .drawer { border-color: rgba(255, 255, 255, 0.1); }
+
+  .drawer-close:hover { background: rgba(255, 255, 255, 0.1); }
+
+  .toast {
+    background: rgba(28, 33, 29, 0.97);
+    color: var(--ink);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* 图片上的玻璃按钮与大图关闭钮：暗色下减淡为半透明深底 */
+  .glass-button {
+    background: rgba(28, 33, 29, 0.72);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--ink);
+  }
+
+  .glass-button:hover:not(:disabled) { background: rgba(28, 33, 29, 0.88); }
+
+  .lightbox-close {
+    background: rgba(28, 33, 29, 0.9);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--ink);
+  }
+
+  .lightbox-close:hover { background: rgba(40, 47, 42, 0.95); }
+
+  /* 暗色下的字重：标题与强调回补，正文保持细一档（.button/.tab 由浅色层的 600 接管） */
+  h1, h2, h3, .brand-mark, .stat-value, .type-card strong { font-weight: 500; }
+}

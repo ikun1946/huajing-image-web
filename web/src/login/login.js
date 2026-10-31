@@ -25,6 +25,9 @@ const registerError = $('#register-error')
 const setupForm = $('#setup-form')
 const setupSubmit = $('#setup-submit')
 const setupError = $('#setup-error')
+const setupKeyInput = $('#setup-key')
+const setupUsernameInput = $('#setup-username')
+const setupPasswordInput = $('#setup-password')
 
 /* 与服务端一致的规则：前端先拦一遍，少走一次往返 */
 const USERNAME_PATTERN = /^[A-Za-z0-9_.\-\u4e00-\u9fa5]{3,24}$/
@@ -124,7 +127,11 @@ loginForm.addEventListener('submit', async event => {
 
   const username = usernameInput.value.trim()
   const password = passwordInput.value
+  invalidate(usernameInput, false)
+  invalidate(passwordInput, false)
   if (!username || !password) {
+    invalidate(usernameInput, !username)
+    invalidate(passwordInput, !password)
     setMessage(loginError, '请填写用户名和密码')
     ;(!username ? usernameInput : passwordInput).focus()
     return
@@ -208,6 +215,11 @@ for (const input of [regUsername, regPassword, regPasswordConfirm, usernameInput
   input.addEventListener('input', () => invalidate(input, false))
 }
 
+// 首次部署表单同样：输入即清红框
+for (const input of [setupKeyInput, setupUsernameInput, setupPasswordInput]) {
+  input.addEventListener('input', () => invalidate(input, false))
+}
+
 $('#done-back').addEventListener('click', () => {
   setMode('login')
   usernameInput.value = regUsername.value.trim()
@@ -221,12 +233,16 @@ setupForm.addEventListener('submit', async event => {
   event.preventDefault()
   clearMessage(setupError)
 
-  const setupKey = $('#setup-key').value
-  const username = $('#setup-username').value.trim()
+  const setupKey = setupKeyInput.value
+  const username = setupUsernameInput.value.trim()
   const displayName = $('#setup-display-name').value.trim()
-  const password = $('#setup-password').value
+  const password = setupPasswordInput.value
 
+  for (const input of [setupKeyInput, setupUsernameInput, setupPasswordInput]) invalidate(input, false)
   if (!setupKey || !username || !password) {
+    invalidate(setupKeyInput, !setupKey)
+    invalidate(setupUsernameInput, !username)
+    invalidate(setupPasswordInput, !password)
     setMessage(setupError, '请填写管理密钥、用户名和密码')
     return
   }

@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>画境 · 后台管理</title>
-  <link rel="stylesheet" href="/src/index/studio.css">
+  <link rel="stylesheet" href="/src/ui/tokens.css">
+  <link rel="stylesheet" href="/src/ui/base.css">
+  <link rel="stylesheet" href="/src/ui/components.css">
   <link rel="stylesheet" href="/src/admin/admin.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E管%3C/text%3E%3C/svg%3E">
 </head>
@@ -30,7 +32,7 @@
       <section class="admin-section" id="section-accounts">
         <div class="section-head">
           <h2>账号管理</h2>
-          <button class="admin-button primary" id="new-user-button" type="button">＋ 新建账号</button>
+          <button class="button primary" id="new-user-button" type="button">＋ 新建账号</button>
         </div>
         <p class="section-note">客户端不提供注册入口，所有账号在此创建。</p>
         <div class="admin-table-shell">
@@ -50,10 +52,41 @@
         </div>
       </section>
 
+      <section class="admin-section" id="section-feedback">
+        <div class="section-head">
+          <h2>用户反馈</h2>
+          <div class="feedback-tools">
+            <span class="badge" id="feedback-pending">未处理 0</span>
+            <div class="trend-tabs" id="feedback-filter" role="tablist" aria-label="反馈筛选">
+              <button class="trend-tab active" data-status="all" type="button">全部</button>
+              <button class="trend-tab" data-status="new" type="button">未处理</button>
+              <button class="trend-tab" data-status="resolved" type="button">已处理</button>
+            </div>
+          </div>
+        </div>
+        <p class="section-note">客户端提交的意见按时间倒序；内容过长时点一下即可展开整条。</p>
+        <div class="admin-table-shell">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>账号</th>
+                <th>类型</th>
+                <th>内容</th>
+                <th>页面</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="feedback-body"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="admin-section" id="section-stats">
         <div class="section-head">
           <h2>生图统计</h2>
-          <button class="admin-button ghost" id="refresh-button" type="button">刷新</button>
+          <button class="button ghost" id="refresh-button" type="button">刷新</button>
         </div>
 
         <div class="stat-cards">
@@ -135,28 +168,28 @@
       <form id="user-form" class="modal-form">
         <label class="modal-field">
           <span>用户名</span>
-          <input class="modal-input" id="modal-username" autocomplete="off" required>
+          <input class="input" id="modal-username" autocomplete="off" required>
         </label>
         <label class="modal-field">
           <span>显示名</span>
-          <input class="modal-input" id="modal-display-name" autocomplete="off">
+          <input class="input" id="modal-display-name" autocomplete="off">
         </label>
         <label class="modal-field">
           <span>密码</span>
-          <input class="modal-input" id="modal-password" type="password" autocomplete="new-password">
+          <input class="input" id="modal-password" type="password" autocomplete="new-password">
           <small id="modal-password-hint">至少 6 位</small>
         </label>
         <label class="modal-field">
           <span>角色</span>
-          <select class="modal-input" id="modal-role">
+          <select class="select" id="modal-role">
             <option value="user">普通用户</option>
             <option value="admin">管理员</option>
           </select>
         </label>
         <p class="modal-error" id="modal-error" role="alert" hidden></p>
         <div class="modal-actions">
-          <button class="admin-button primary" id="modal-save" type="submit">保存</button>
-          <button class="admin-button ghost" id="modal-cancel" type="button">取消</button>
+          <button class="button primary" id="modal-save" type="submit">保存</button>
+          <button class="button ghost" id="modal-cancel" type="button">取消</button>
         </div>
       </form>
     </div>

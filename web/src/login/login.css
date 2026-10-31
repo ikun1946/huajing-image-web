@@ -1,70 +1,17 @@
 /* ===== 客户端登录 / 申请账号页 =====
-   令牌与工作台（batch.css）同源：暖纸底 + 墨绿主色，只声明一层层次（边框 + 极淡投影）。
-   登录页不依赖 admin.css / studio.css，自带完整的基础样式。 */
+   颜色、圆角、字号、阴影一律取自 ui/tokens.css；重置、焦点环、
+   滚动条、[hidden] 兜底来自 ui/base.css；按钮与输入的基座来自
+   ui/components.css。这里只写登录页特有的布局与品牌元素。 */
 
-:root {
-  color-scheme: light;
-  --paper: #f4f0e6;
-  --paper-deep: #e8e0d0;
-  --surface: #fffdf8;
-  --surface-sunken: #faf6ec;
-  --ink: #1d2420;
-  --ink-soft: #5f6a61;
-  --ink-faint: #6f766d;
-  --line: rgba(29, 36, 32, 0.14);
-  --line-soft: rgba(29, 36, 32, 0.08);
-  --moss: #425a46;
-  --moss-strong: #35503c;
-  --moss-tint: rgba(66, 90, 70, 0.14);
-  --danger: #a74331;
-  --danger-tint: rgba(167, 67, 49, 0.1);
-  --on-moss: #fffdf8;
-  --radius-card: 16px;
-  --radius-field: 10px;
-  --shadow: 0 2px 14px rgba(44, 38, 27, 0.06);
-  --font-body: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
-  --font-display: "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
+/* ---------- 页面底 ---------- */
 body {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  padding: 24px;
+  padding: var(--space-6);
   display: grid;
   place-items: center;
   background:
     radial-gradient(120% 60% at 50% -10%, rgba(255, 253, 248, 0.9), transparent 60%),
     var(--paper);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.5;
-  /* 系统滚动条也属于设计的一部分 */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(29, 36, 32, 0.26) transparent;
-}
-
-::selection {
-  background: rgba(66, 90, 70, 0.18);
-}
-
-input,
-button {
-  font: inherit;
-  caret-color: var(--moss);
-}
-
-:focus-visible {
-  outline: 2px solid var(--moss);
-  outline-offset: 2px;
+  font-size: var(--text-md);
 }
 
 /* ---------- 卡片 ---------- */
@@ -75,20 +22,14 @@ button {
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: var(--shadow);
-  animation: rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
+/* 页面外壳不做入场淡入：窗口在后台或动画未启动时，opacity:0 会让整页看起来是空的 */
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   margin-bottom: 18px;
 }
 
@@ -97,7 +38,7 @@ button {
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--moss);
   color: var(--on-moss);
   font-family: var(--font-display);
@@ -115,14 +56,12 @@ button {
 
 .title {
   margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--text-xl);
 }
 
 .lede {
   margin: 0 0 18px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   line-height: 1.65;
   color: var(--ink-soft);
 }
@@ -133,22 +72,22 @@ button {
   gap: 2px;
   padding: 3px;
   margin-bottom: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   border: 1px solid var(--line-soft);
 }
 
 .tab {
   flex: 1;
-  height: 30px;
+  height: 32px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 
 .tab:hover {
@@ -168,62 +107,23 @@ button {
   gap: 13px;
 }
 
-.form[hidden],
-.done[hidden],
-.setup[hidden],
-.tabs[hidden] {
-  display: none;
-}
-
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+/* 覆盖组件层的 block，容纳「可选」小标 */
 .field-label {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 12px;
-  color: var(--ink-soft);
 }
 
 .field-label .opt {
   font-size: 11px;
   color: var(--ink-faint);
-}
-
-.input {
-  width: 100%;
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-field);
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 13.5px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.input::placeholder {
-  color: var(--ink-faint);
-}
-
-/* 双环焦点：边框变色 + 一圈淡色光环，不用 outline 顶着看 */
-.input:focus,
-.input:focus-visible {
-  outline: none;
-  border-color: var(--moss);
-  box-shadow: 0 0 0 3px var(--moss-tint);
-}
-
-.input[aria-invalid="true"] {
-  border-color: var(--danger);
-}
-
-.input[aria-invalid="true"]:focus {
-  box-shadow: 0 0 0 3px var(--danger-tint);
+  font-weight: 400;
 }
 
 .field-hint {
@@ -240,6 +140,7 @@ button {
   padding-right: 44px;
 }
 
+/* 密码可见性：小图标按钮，悬停浮出浅底 */
 .eye {
   position: absolute;
   top: 50%;
@@ -251,10 +152,11 @@ button {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-faint);
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 
 .eye:hover {
@@ -279,66 +181,22 @@ button {
   display: block;
 }
 
-/* 提示位：没有错误时显示一句引导语，出错时原地变红，表单不会跳 */
-.form-msg {
-  min-height: 17px;
-  margin: 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--ink-faint);
-}
-
-.form-msg.err {
-  color: var(--danger);
-}
-
-.form-msg.ok {
-  color: var(--moss);
-}
-
+/* 提交：复用 .button 基座，只换主色为墨绿 */
 .submit {
-  height: 40px;
-  margin-top: 3px;
-  border: 1px solid var(--moss);
-  border-radius: var(--radius-field);
+  border-color: var(--moss);
   background: var(--moss);
   color: var(--on-moss);
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
 .submit:hover:not(:disabled) {
-  background: var(--moss-strong);
   border-color: var(--moss-strong);
+  background: var(--moss-strong);
+  box-shadow: none;
 }
 
-.submit:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
+/* 提交中：disabled 态由 .button 提供，这里保留「进行中」的光标语义 */
 .submit:disabled {
-  opacity: 0.6;
   cursor: progress;
-}
-
-
-.ghost {
-  height: 36px;
-  padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-field);
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.ghost:hover {
-  background: var(--surface-sunken);
-  color: var(--ink);
 }
 
 /* ---------- 申请已提交 ---------- */
@@ -346,7 +204,7 @@ button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 6px 0 2px;
 }
 
@@ -366,8 +224,7 @@ button {
 }
 
 .done p {
-  margin: 0;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   line-height: 1.7;
   color: var(--ink-soft);
 }
@@ -380,81 +237,58 @@ button {
 /* ---------- 页脚 ---------- */
 .foot {
   margin: 18px 0 0;
-  padding-top: 12px;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--line-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--ink-faint);
   letter-spacing: 0.02em;
 }
 
-/* ---------- 暗色 ---------- */
+/* ---------- 暗色：只调字重，配色全部跟随 tokens.css ---------- */
 @media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --paper: #171a17;
-    --paper-deep: #121513;
-    --surface: #1f2320;
-    --surface-sunken: #1a1e1b;
-    --ink: #e7e3d9;
-    --ink-soft: #a8b0a6;
-    --ink-faint: #8b948a;
-    --line: rgba(230, 226, 216, 0.14);
-    --line-soft: rgba(230, 226, 216, 0.08);
-    --moss: #7fa184;
-    --moss-strong: #93b597;
-    --moss-tint: rgba(127, 161, 132, 0.2);
-    --danger: #cf8574;
-    --danger-tint: rgba(207, 133, 116, 0.16);
-    --on-moss: #161a16;
-    --shadow: 0 2px 16px rgba(0, 0, 0, 0.42);
-  }
-
   body {
     background:
-      radial-gradient(120% 60% at 50% -10%, rgba(127, 161, 132, 0.06), transparent 60%),
+      radial-gradient(120% 60% at 50% -10%, rgba(138, 170, 143, 0.06), transparent 60%),
       var(--paper);
     font-weight: 300;
   }
 
   .title,
-  .done h2,
   .submit {
     font-weight: 500;
   }
-
-  .form-msg,
-  .field-label {
-    font-weight: 400;
-  }
 }
 
-/* ---------- 移动端 ---------- */
+/* ---------- 移动端：触控目标一律 ≥44px ---------- */
 @media (max-width: 480px) {
   body {
-    padding: 16px;
+    padding: var(--space-4);
     place-items: start center;
   }
 
   .card {
-    margin-top: 8px;
+    margin-top: var(--space-2);
     padding: 22px 18px 16px;
   }
 
   .title {
-    font-size: 18.5px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .card {
-    animation: none;
+    font-size: 19px;
   }
 
   .tab,
   .input,
   .submit,
-  .ghost,
+  .ghost {
+    min-height: 44px;
+  }
+
   .eye {
-    transition: none;
+    right: 0;
+    width: 44px;
+    height: 44px;
+  }
+
+  .pass-wrap .input {
+    padding-right: 50px;
   }
 }

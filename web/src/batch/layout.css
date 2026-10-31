@@ -1,0 +1,216 @@
+/* 批量工作台外壳：令牌、全局基元、背景与主区框架 */
+
+:root {
+  --paper: #f3f1eb;
+  --paper-deep: #e9e6de;
+  --surface: rgba(252, 251, 247, 0.96);
+  --surface-solid: #fcfbf7;
+  --surface-raised: #ffffff;
+  --surface-subtle: #f5f3ed;
+  --ink: #202722;
+  --ink-soft: #59645c;
+  --ink-faint: #6e776f;
+  --line: rgba(32, 39, 34, 0.14);
+  --line-soft: rgba(32, 39, 34, 0.08);
+  --accent: #a54c31;
+  --accent-dark: #843922;
+  --moss: #365445;
+  --moss-light: #66836e;
+  --gold: #a78243;
+  --danger: #a74331;
+  --white: #fffdf8;
+  --on-accent: #fffaf5;
+  /* 圆角档位：外圈 = 内圈 + 缝隙（外壳 20 = 面板 16 + 4；面板 16 = 构件 12 + 4） */
+  --radius-shell: 20px;
+  --radius-panel: 16px;
+  --radius-inner: 12px;
+  --radius-field: 10px;
+  --shadow: 0 12px 40px rgba(40, 43, 36, 0.055);
+  --shadow-soft: 0 4px 16px rgba(40, 43, 36, 0.045);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 36, 32, 0.26) transparent;
+}
+
+::selection {
+  background: rgba(66, 90, 70, 0.18);
+}
+
+button,
+input,
+select,
+textarea {
+  caret-color: var(--moss);
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 2px;
+}
+
+/* 数字统一等宽，统计/进度/数量刷新时不左右抖动 */
+.tab-count,
+.dataset-stat strong,
+.type-card strong,
+.stat-value,
+.free-elapsed,
+#free-count,
+#modal-prompt-count {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% -8%, rgba(165, 76, 49, 0.075), transparent 30rem),
+    linear-gradient(180deg, #f7f5f0 0, var(--paper) 32rem, var(--paper-deep) 100%);
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 升级后底纹网格停用（暗色同停，见 dark.css 说明） */
+body::before {
+  display: none;
+}
+
+.app {
+  width: min(1600px, calc(100% - 40px));
+  margin: 20px auto 40px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-shell);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+main {
+  padding: 28px;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 15px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-field);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.button:focus-visible,
+.tab:focus-visible,
+.icon-button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(179, 78, 45, 0.2);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+.button.primary {
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-dark);
+  box-shadow: 0 5px 14px rgba(165, 76, 49, 0.18);
+}
+
+.button.secondary {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--surface-raised);
+}
+
+.button.secondary:hover:not(:disabled) {
+  border-color: rgba(29, 36, 32, 0.25);
+  background: var(--white);
+}
+
+.button.ghost {
+  color: var(--ink-soft);
+  padding-right: 10px;
+  padding-left: 10px;
+  background: transparent;
+}
+
+.button.danger {
+  color: var(--danger);
+  border-color: rgba(167, 67, 49, 0.18);
+  background: rgba(167, 67, 49, 0.06);
+}
+
+.button svg,
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.icon-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.75);
+  cursor: pointer;
+}
+
+.icon-button:disabled {
+  cursor: default;
+  opacity: 0.34;
+}

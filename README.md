@@ -42,13 +42,17 @@ huajing-image-web/
 │   ├── login.html             登录页（登录 / 申请账号）
 │   ├── admin.html             后台管理页
 │   ├── src/
+│   │   ├── ui/                共享设计层：tokens.css（令牌 + 暗色）/ base.css / components.css
 │   │   ├── lib/               api.js / config.js / dom.js / guard.js / history-panel.js / prompt-tools.css
 │   │   │   ├── asset-groups.js 角色/场景分组（同一主体的不同状态/区域）
 │   │   │   ├── style-transfer.js 风格库 JSON 导出与导入合并
+│   │   │   ├── overlay.js     弹层公共行为：ESC / 焦点陷阱 / 焦点归还 / 滚动锁
+│   │   │   ├── ratio.js       画面比例唯一来源（服务端配置 + 内置兜底）
+│   │   │   ├── format.js      文件名、画幅等纯函数
 │   │   │   └── history-panel.css  生成记录面板样式（多页面共用）
-│   │   ├── batch/             批量工作台 + 自由创作 CSS + JS
-│   │   ├── login/             登录页 CSS + JS（自带令牌，不依赖后台页样式）
-│   │   └── admin/             管理页 CSS + JS
+│   │   ├── batch/             工作台样式按职责拆成 11 个 CSS（batch.css 只列 @import）+ batch.js
+│   │   ├── login/             登录页 CSS + JS（令牌取自 ui/）
+│   │   └── admin/             管理页 CSS + JS（令牌取自 ui/）
 │   ├── vite.config.ts
 │   └── package.json
 ├── scripts/dev.mjs            一条命令同时起前后端
@@ -58,7 +62,7 @@ huajing-image-web/
 ├── usage.json                 生图统计与生成记录
 ├── styles/                    风格库目录（每个账号一份 <userId>.json）
 ├── logs/                      后端运行日志（按天 YYYY-MM-DD.log）
-├── data/                      监控数据（traffic.json 流量、rate-limit.json 限流、quotas.json 额度、concurrency.json 并发上限）
+├── data/                      监控数据（traffic.json 流量、rate-limit.json 限流、quotas.json 额度、concurrency.json 并发上限、feedback.json 意见反馈）
 └── generated/                 生成的图片（按资产类型分文件夹）
     ├── 角色/                   角色资产图，文件名为资产名
     ├── 场景/                   场景资产图
@@ -303,6 +307,11 @@ PUT    /api/admin/users/:id/quota  设置每日额度 { dailyLimit }（0=不限�
 GET    /api/admin/concurrency  生图并发上限与在途情况  管理员
 PUT    /api/admin/concurrency  运行时调整并发上限 { limit: 1–8 }，立即生效并落盘  管理员
 GET    /api/quota        当前账号的今日额度状态（登录即可）
+POST   /api/feedback     提交意见反馈 { category: bug|suggestion|other, content, page?, appVersion? }
+                         内容 5–2000 字；同一账号 60 秒内最多 3 条，超出返回 429（登录即可）
+GET    /api/feedback/mine?limit=20  本人最近反馈（按时间倒序，登录即可）
+GET    /api/admin/feedback?status=all|new|resolved&limit=200  反馈列表 + counts  管理员
+PATCH  /api/admin/feedback/:id  标记处理状态 { status: new|resolved }  管理员
 GET    /api/upstream     控制台的 Magpie 地址设置与当前连通性（控制台管理员）
 PUT    /api/upstream     保存 Magpie 地址 { baseUrl } 并重启主服务（控制台管理员）
 POST   /api/upstream/test  按传入地址探一次连通性，不保存（控制台管理员）
@@ -311,7 +320,7 @@ GET    /api/admin/stats/trend?range=today|7d|30d|90d|180d
                           （today 按小时分桶，其余按天分桶，取自本地 usage.json）
 ```
 
-错误码：`INVALID_PROMPT`、`PROMPT_TOO_LONG`、`RATIO_INVALID`、`AUTH_REQUIRED`、`AUTH_INVALID`、`AUTH_FORBIDDEN`、`UPSTREAM_UNREACHABLE`、`UPSTREAM_TIMEOUT`、`UPSTREAM_ERROR`、`UPSTREAM_BAD_RESPONSE`、`IMAGE_INVALID`、`IMAGE_UNSUPPORTED`、`INTERNAL_ERROR`。
+错误码：`INVALID_PROMPT`、`PROMPT_TOO_LONG`、`RATIO_INVALID`、`FEEDBACK_INVALID`、`AUTH_REQUIRED`、`AUTH_INVALID`、`AUTH_FORBIDDEN`、`UPSTREAM_UNREACHABLE`、`UPSTREAM_TIMEOUT`、`UPSTREAM_ERROR`、`UPSTREAM_BAD_RESPONSE`、`IMAGE_INVALID`、`IMAGE_UNSUPPORTED`、`INTERNAL_ERROR`。
 
 `imageUrl` 是后端绝对地址（依据 `PUBLIC_BASE_URL` 或请求 Host 推断），因此前端部署在任何端口都能正确取图。
 
@@ -526,6 +535,17 @@ generated/    图片文件
 - **改自己的名称**：头像菜单 →「修改名称」可以改自己的**显示名**（登录用的用户名不变）。
   名称在账号库里唯一，重名会被拒绝并给出提示；最多 24 个字，改完头像首字与菜单里的名字立即更新。
 
+#### 意见反馈
+
+- 入口在客户端右上角头像菜单 →「意见反馈」：类型分「缺陷 / 建议 / 其他」，正文 5–2000 字，
+  提交时一并带上当前页面与版本号，方便定位问题。
+- 反馈落在服务端 `data/feedback.json`（桌面端为 `<数据目录>/data/feedback.json`）；
+  同一账号 60 秒内最多 3 条，超出会提示「提交得有点频繁」。
+- 提交成功后弹窗切到「已提交」，并列出本人最近 3 条反馈的处理状态；关掉再打开仍能看到。
+- 管理员在后台页「用户反馈」区块查看：未处理数量角标、全部/未处理/已处理筛选、
+  内容点击展开整条，操作列在「标记已处理 / 标记未处理」之间切换，处理结果会同步到客户端的状态列表。
+- 最多保留最近 2000 条，超出后丢弃最旧的。
+
 #### 本地缓存按账号隔离
 
 同一台电脑、同一个浏览器上换账号，**不能再看到上一个人的工作区**。做法与约定：
@@ -549,7 +569,7 @@ generated/    图片文件
 
 #### 客户端登录页视觉规范
 
-登录页（`web/login.html` + `web/src/login/login.css`）自带一套令牌，不再借用后台页样式表：
+登录页（`web/login.html` + `web/src/login/login.css`）的令牌来自 `web/src/ui/tokens.css`，与工作台、后台完全同源：
 
 - **同一套暖纸色系**：`--paper #f4f0e6` / 墨绿 `--moss #425a46`，与工作台一致；
   暗色 `prefers-color-scheme: dark` 下换成深纸底，主按钮反白（`--on-moss` 深墨色文字）
@@ -562,13 +582,14 @@ generated/    图片文件
 - **申请账号**：用户名 / 显示名（可选）/ 密码 / 确认密码，前端先按服务端同一套规则校验，
   提交成功后换成「申请已提交」态并回填用户名，点「返回登录」直接进入登录态
 - **对比度**：说明文字 5.55:1、字段提示与页脚 4.6:1（暗色 7.14 / 5.08），均 ≥ 4.5
-- **移动端**：390px 下卡片 358px 贴顶排布，无横向溢出；`prefers-reduced-motion` 下关闭入场动画
+- **移动端**：390px 下卡片 358px 贴顶排布，无横向溢出；触控目标 ≥ 44px
 
 #### 客户端视觉规范
 
-与服务器控制台共用一套思路（任务优先、精确克制），令牌集中在 `web/src/batch/batch.css` 的 `:root`：
+与服务器控制台共用一套思路（任务优先、精确克制）。令牌统一在 `web/src/ui/tokens.css`（三页共用，暗色只在那里改值），控件在 `web/src/ui/components.css`，工作台样式按职责拆在 `web/src/batch/*.css`：
 
-- **视觉令牌**：保留暖纸色、墨绿与陶土橙品牌色，统一 `--surface-raised/subtle`、边框、圆角与控件高度；外壳只留一层轻边界和淡投影，内部工作区用细线与低明度差分层，不叠卡片阴影
+- **视觉令牌**：保留暖纸色、墨绿与陶土橙品牌色，统一 `--surface-raised/subtle`、边框、圆角与控件高度；外壳只留一层轻边界和淡投影，内部工作区用细线与低明度差分层，不叠卡片阴影。字号只用 12/13/14/16/20/28 六档，间距为 4 的倍数
+- **页面外壳不做入场淡入**：`opacity: 0` 起始的容器动画在窗口被遮挡、最小化或截图取景时会停在首帧，整页看起来是空的；微动效只留在弹层、缩略图与状态胶囊上
 - **顶栏与导航**：42px 品牌标 +「画境 / 资产创作工作台」组成紧凑顶栏；六个主入口使用下划线指示当前页，资产数量保留等宽数字，窄屏可横向滚动
 - **文字与控件**：正文和表格主要内容使用 12–14px，辅助信息使用 11–12px；按钮、输入框和选择器统一 40px 标准高度，焦点环、选区、光标和滚动条从调色板取色
 - **批量工具栏**：第一行放搜索与选择，第二行放画幅/风格/并行参数和生成/下载操作；所有原操作保持不变，宽表只在自身容器内横向滚动

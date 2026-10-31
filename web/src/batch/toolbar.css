@@ -1,0 +1,206 @@
+/* 资产工具栏与队列进度；.input/.select/.textarea 为本页共用表单基元 */
+
+.toolbar {
+  display: block;
+  margin-bottom: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-row-main {
+  margin-bottom: 10px;
+}
+
+.toolbar-row-actions {
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-inner);
+  background: var(--surface-subtle);
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-selection {
+  flex: none;
+}
+
+.toolbar-params,
+.toolbar-generate {
+  flex-wrap: wrap;
+}
+
+.toolbar-generate {
+  justify-content: flex-end;
+}
+
+.toolbar-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toolbar-field-style .select {
+  width: min(190px, 18vw);
+}
+
+.toolbar-field .select {
+  height: 40px;
+  background: var(--surface-raised);
+  font-size: 12px;
+}
+
+.search-wrap {
+  position: relative;
+  min-width: 200px;
+  flex: 1 1 260px;
+}
+
+.search-wrap svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.7;
+  transform: translateY(-50%);
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-field);
+  outline: none;
+  background: var(--surface-raised);
+  font-size: 13px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.input {
+  height: 40px;
+  padding: 0 12px;
+}
+
+.search-wrap .input {
+  padding-left: 36px;
+}
+
+.select {
+  width: auto;
+  height: 40px;
+  padding: 0 30px 0 10px;
+  cursor: pointer;
+}
+
+.concurrency-select {
+  min-width: 84px;
+}
+
+.textarea {
+  padding: 12px 13px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: rgba(54, 84, 69, 0.55);
+  box-shadow: 0 0 0 3px rgba(54, 84, 69, 0.1);
+}
+
+.input.invalid,
+.input.invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(167, 67, 49, 0.1);
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 24px;
+  margin: 0 2px;
+  background: var(--line-soft);
+}
+
+.queue-panel {
+  margin-bottom: 15px;
+  padding: 14px 16px;
+  border: 1px solid rgba(66, 90, 70, 0.14);
+  border-radius: 15px;
+  background:
+    linear-gradient(110deg, rgba(66, 90, 70, 0.075), transparent 62%),
+    rgba(255, 253, 248, 0.62);
+}
+
+.queue-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 9px;
+}
+
+.queue-title {
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.queue-detail {
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-count {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  font-family: Georgia, serif;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(29, 36, 32, 0.085);
+}
+
+.progress-bar {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--moss), var(--moss-light), var(--accent));
+  transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.queue-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 9px;
+}

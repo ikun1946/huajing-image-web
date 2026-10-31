@@ -1,15 +1,18 @@
 import {
   createAdminUser,
   deleteAdminUser,
+  fetchAdminFeedback,
   fetchAdminStats,
   fetchAdminTrend,
   fetchAdminUsers,
   fetchCurrentUser,
   logout,
   updateAdminUser,
+  updateFeedbackStatus,
 } from '../lib/api.js'
 import { escapeHtml, formatDateTime } from '../lib/dom.js'
 import { setupAvatarMenu } from '../lib/avatar-menu.js'
+import { activateOverlay } from '../lib/overlay.js'
 
 setupAvatarMenu()
 
@@ -19,6 +22,9 @@ const dom = {
   logoutButton: document.querySelector('#logout-button'),
   newUserButton: document.querySelector('#new-user-button'),
   refreshButton: document.querySelector('#refresh-button'),
+  feedbackBody: document.querySelector('#feedback-body'),
+  feedbackFilter: document.querySelector('#feedback-filter'),
+  feedbackPending: document.querySelector('#feedback-pending'),
   usersBody: document.querySelector('#users-body'),
   statsBody: document.querySelector('#stats-body'),
   recentBody: document.querySelector('#recent-body'),
@@ -41,6 +47,7 @@ const dom = {
 let currentUser = null
 let editingId = ''
 let stats = null
+let modalOverlay = null
 
 init()
 
@@ -70,6 +77,8 @@ async function init() {
   // 先拿统计，再渲染账号表，这样表里能显示每个账号的生图数
   await loadStats()
   await loadUsers()
+  // 反馈与账号/统计相互独立，各自容错，互不阻塞
+  await loadFeedback()
 }
 
 dom.logoutButton.addEventListener('click', async () => {
@@ -142,10 +151,17 @@ function openModal(user) {
   dom.role.disabled = Boolean(user)
   clearError()
   dom.modal.hidden = false
-  dom.username.focus()
+  // 显隐仍由本页决定，overlay 只接管 ESC / 焦点陷阱 / 滚动锁
+  modalOverlay?.release()
+  modalOverlay = activateOverlay(dom.modal, {
+    onRequestClose: closeModal,
+    initialFocus: dom.username.disabled ? dom.displayName : dom.username,
+  })
 }
 
 function closeModal() {
+  modalOverlay?.release()
+  modalOverlay = null
   dom.modal.hidden = true
   editingId = ''
 }
@@ -195,12 +211,12 @@ async function loadUsers() {
           <td>${count}</td>
           <td>
             <div class="row-actions">
-              <button class="admin-button ghost mini" data-action="edit" data-id="${escapeHtml(user.id)}">编辑</button>
+              <button class="button ghost sm" data-action="edit" data-id="${escapeHtml(user.id)}">编辑</button>
               ${
                 isSelf
                   ? ''
-                  : `<button class="admin-button ghost mini" data-action="toggle" data-id="${escapeHtml(user.id)}" data-disabled="${user.disabled}">${toggleLabel}</button>
-                     <button class="admin-button danger mini" data-action="delete" data-id="${escapeHtml(user.id)}">删除</button>`
+                  : `<button class="button ghost sm" data-action="toggle" data-id="${escapeHtml(user.id)}" data-disabled="${user.disabled}">${toggleLabel}</button>
+                     <button class="button danger sm" data-action="delete" data-id="${escapeHtml(user.id)}">删除</button>`
               }
             </div>
           </td>
@@ -270,6 +286,103 @@ async function loadStats() {
     }
     console.error(error)
   }
+}
+
+// ---------- 用户反馈 ----------
+
+const FEEDBACK_CATEGORY_LABEL = { bug: '缺陷', suggestion: '建议', other: '其他' }
+
+let feedbackStatus = 'all'
+
+dom.feedbackFilter?.addEventListener('click', async event => {
+  const tab = event.target.closest('[data-status]')
+  if (!tab || tab.dataset.status === feedbackStatus) return
+
+  feedbackStatus = tab.dataset.status
+  dom.feedbackFilter.querySelectorAll('.trend-tab').forEach(item => {
+    item.classList.toggle('active', item === tab)
+  })
+  await loadFeedback()
+})
+
+dom.feedbackBody.addEventListener('click', async event => {
+  const target = event.target.closest('[data-action]')
+  if (!target) return
+
+  // 长内容默认单行省略，点一下就地展开 / 收起（完整文本同时也放 title 里）
+  if (target.dataset.action === 'expand') {
+    const expanded = target.classList.toggle('expanded')
+    target.setAttribute('aria-expanded', String(expanded))
+    return
+  }
+
+  if (target.dataset.action === 'toggle-status') {
+    const next = target.dataset.status === 'resolved' ? 'new' : 'resolved'
+    target.disabled = true
+    try {
+      await updateFeedbackStatus(target.dataset.id, next)
+      await loadFeedback()
+    } catch (error) {
+      target.disabled = false
+      alert(error.message || '操作失败')
+    }
+  }
+})
+
+async function loadFeedback() {
+  try {
+    // 固定拉 200 条：筛选与角标都基于同一份结果，避免切换时数字跳动
+    const result = await fetchAdminFeedback(feedbackStatus, 200)
+    renderFeedback(result?.feedback || [], result?.counts || {})
+  } catch (error) {
+    if (error.status === 401 || error.status === 403) {
+      window.location.replace('/login.html')
+      return
+    }
+    dom.feedbackBody.innerHTML = `<tr class="empty-row"><td colspan="7">读取失败：${escapeHtml(error.message)}</td></tr>`
+  }
+}
+
+function renderFeedback(items, counts) {
+  const pending = Number(counts.new || 0)
+  dom.feedbackPending.textContent = `未处理 ${pending}`
+  dom.feedbackPending.classList.toggle('has-pending', pending > 0)
+
+  if (!items.length) {
+    const message = feedbackStatus === 'new' ? '没有待处理的反馈' : '还没有反馈'
+    dom.feedbackBody.innerHTML = `<tr class="empty-row"><td colspan="7">${message}</td></tr>`
+    return
+  }
+
+  dom.feedbackBody.innerHTML = items
+    .map(item => {
+      const account = item.displayName
+        ? `${item.displayName}（${item.username}）`
+        : item.username
+      const category = FEEDBACK_CATEGORY_LABEL[item.category] || item.category
+      const resolved = item.status === 'resolved'
+      const statusPill = resolved
+        ? '<span class="status-pill done">已处理</span>'
+        : '<span class="status-pill queued">未处理</span>'
+      const timeTitle = item.appVersion ? `客户端版本 ${item.appVersion}` : ''
+
+      return `<tr>
+        <td${timeTitle ? ` title="${escapeHtml(timeTitle)}"` : ''}>${formatDateTime(item.createdAt)}</td>
+        <td>${escapeHtml(account)}</td>
+        <td><span class="badge">${escapeHtml(category)}</span></td>
+        <td class="feedback-content-cell">
+          <button class="feedback-content" type="button" data-action="expand" aria-expanded="false" title="${escapeHtml(item.content)}">${escapeHtml(item.content)}</button>
+        </td>
+        <td>${escapeHtml(item.page || '—')}</td>
+        <td>${statusPill}</td>
+        <td>
+          <div class="row-actions">
+            <button class="button ghost sm" data-action="toggle-status" data-id="${escapeHtml(item.id)}" data-status="${resolved ? 'resolved' : 'new'}">${resolved ? '标记未处理' : '标记已处理'}</button>
+          </div>
+        </td>
+      </tr>`
+    })
+    .join('')
 }
 
 // ---------- 生图趋势折线图 ----------

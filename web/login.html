@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>画境 · 登录</title>
+  <link rel="stylesheet" href="/src/ui/tokens.css">
+  <link rel="stylesheet" href="/src/ui/base.css">
+  <link rel="stylesheet" href="/src/ui/components.css">
   <link rel="stylesheet" href="/src/login/login.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23425a46'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fffdf8' font-family='serif'%3E境%3C/text%3E%3C/svg%3E">
 </head>
@@ -42,7 +45,7 @@
         </span>
       </label>
       <p class="form-msg" id="login-error" role="alert" data-hint="忘记密码可以联系管理员重置。">忘记密码可以联系管理员重置。</p>
-      <button class="submit" id="login-submit" type="submit">登录</button>
+      <button class="button submit" id="login-submit" type="submit">登录</button>
     </form>
 
     <!-- 申请账号：提交后进审核队列 -->
@@ -78,7 +81,7 @@
         </span>
       </label>
       <p class="form-msg" id="register-error" role="alert" data-hint="提交后要等管理员审核，审核期间还不能登录。">提交后要等管理员审核，审核期间还不能登录。</p>
-      <button class="submit" id="register-submit" type="submit">提交申请</button>
+      <button class="button submit" id="register-submit" type="submit">提交申请</button>
     </form>
 
     <!-- 申请成功 -->
@@ -87,7 +90,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5 10-11"/></svg>
       </span>
       <p>账号 <b id="done-username"></b> 已进入审核队列。管理员在服务端控制台通过后，用刚才设置的密码就能登录。</p>
-      <button class="ghost" id="done-back" type="button">返回登录</button>
+      <button class="button ghost" id="done-back" type="button">返回登录</button>
     </section>
 
     <!-- 首次部署：账号库为空时创建第一个管理员 -->
@@ -113,7 +116,7 @@
           <span class="field-hint">至少 6 位</span>
         </label>
         <p class="form-msg" id="setup-error" role="alert" data-hint="管理密钥由部署方在服务端配置。">管理密钥由部署方在服务端配置。</p>
-        <button class="submit" id="setup-submit" type="submit">创建管理员</button>
+        <button class="button submit" id="setup-submit" type="submit">创建管理员</button>
       </form>
     </section>
 

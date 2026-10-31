@@ -1,0 +1,242 @@
+/* 自由创作页：参数表单、预览舞台与图上工具 */
+
+.free-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.86fr) minmax(420px, 1.14fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.free-form {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+}
+
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.counter {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.free-form .textarea {
+  min-height: 280px;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.free-params {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.free-params .select {
+  width: 100%;
+}
+
+.free-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-top: 16px;
+  padding-top: 0;
+}
+
+.free-submit-row .button {
+  min-width: 132px;
+}
+
+.status-text {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.free-progress {
+  display: none;
+  margin-top: 18px;
+}
+
+.free-progress.visible {
+  display: block;
+}
+
+.free-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.free-preview {
+  position: relative;
+  display: grid;
+  min-height: 100%;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+}
+
+.free-preview img {
+  display: none;
+  width: 100%;
+  height: 100%;
+  max-height: 720px;
+  object-fit: contain;
+}
+
+.free-preview.has-image {
+  background: #e8e2d7;
+}
+
+.free-preview.has-image img {
+  display: block;
+  animation: image-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.preview-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px;
+  color: var(--ink-faint);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.preview-placeholder strong {
+  margin-bottom: 6px;
+  color: var(--ink-soft);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.preview-placeholder > span {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.preview-placeholder-mark {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 16px;
+  place-items: center;
+  border: 0;
+  border-radius: 16px;
+  color: var(--moss);
+  background: rgba(54, 84, 69, 0.08);
+  font-family: Georgia, serif;
+  font-size: 25px;
+}
+
+.preview-placeholder-mark svg {
+  width: 25px;
+  height: 25px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.free-preview.has-image .preview-placeholder {
+  display: none;
+}
+
+.image-tools {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  display: flex;
+  gap: 7px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-7px);
+  transition: opacity 180ms ease, transform 200ms ease;
+}
+
+.free-preview.has-image:hover .image-tools,
+.free-preview.has-image:focus-within .image-tools {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.glass-button {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: rgba(22, 28, 24, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.28)),
+    rgba(240, 244, 238, 0.2);
+  box-shadow:
+    0 8px 26px rgba(13, 17, 14, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(20px) saturate(155%);
+  -webkit-backdrop-filter: blur(20px) saturate(155%);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.glass-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+@keyframes image-in {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: scale(1.015);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}

@@ -14,12 +14,14 @@ import { SerialGate } from './lib/serial-gate.js'
 import { SessionStore } from './lib/session.js'
 import { registerAdminRoutes } from './routes/admin.js'
 import { registerAuthRoutes, resolveAuth } from './routes/auth.js'
+import { registerFeedbackRoutes } from './routes/feedback.js'
 import { registerFileRoutes } from './routes/files.js'
 import { registerUploadRoutes } from './routes/uploads.js'
 import { registerHistoryRoutes } from './routes/history.js'
 import { registerImageRoutes } from './routes/images.js'
 import { registerMonitorRoutes } from './routes/monitor.js'
 import { ConcurrencyStore } from './services/concurrency-store.js'
+import { FeedbackStore } from './services/feedback-store.js'
 import { QuotaStore } from './services/quota-store.js'
 import { RateLimiter } from './services/rate-limiter.js'
 import { TrafficStore } from './services/traffic-store.js'
@@ -169,9 +171,12 @@ const gate = new SerialGate(concurrency.get())
 const traffic = new TrafficStore(dataDir)
 const rateLimiter = new RateLimiter(dataDir)
 const quotas = new QuotaStore(dataDir)
+// 意见反馈：客户端提交落 data/feedback.json，管理员在后台页查看并标记处理
+const feedback = new FeedbackStore(dataDir)
 await traffic.init()
 await rateLimiter.init()
 await quotas.init()
+await feedback.init()
 const processStartedAt = Date.now()
 
 // 每个请求：限流 → 解析登录身份 → 流量统计
@@ -241,6 +246,7 @@ registerStyleRoutes(app, { library: styleLibrary })
 registerProjectRoutes(app, { projects })
 registerHistoryRoutes(app, { usage, quotas })
 registerMonitorRoutes(app, { traffic, rateLimiter, processStartedAt, gate, concurrency })
+registerFeedbackRoutes(app, { feedback })
 
 /* 优雅退出入口：只在注入了 SHUTDOWN_TOKEN 时开放，且必须带同一个 token 头。
    桌面端和控制台用它在退出前让服务补写数据、关掉日志流——Windows 上
